@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  iot-core:
+    build: .
+    container_name: iot-core-server
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    environment:
+      - DATABASE_PATH=/app/data/iot_core.db
+    depends_on:
+      - mqtt-broker
+    networks:
+      - iot-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  mqtt-broker:
+    image: eclipse-mosquitto:2.0
+    container_name: iot-mqtt-broker
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    networks:
+      - iot-network
+
+networks:
+  iot-network:
+    driver: bridge
+
+volumes:
+  data:
+  logs:
+  mosquitto-data:
+  mosquitto-log:
