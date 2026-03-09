@@ -5,6 +5,7 @@ import os
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import StaticPool
 from app.database.models import Base
@@ -53,7 +54,8 @@ class Database:
         # Включаем WAL mode для SQLite
         if settings.database_wal_mode:
             async with self.engine.connect() as conn:
-                await conn.execute("PRAGMA journal_mode=WAL")
+                await conn.execute(text("PRAGMA journal_mode=WAL"))
+                await conn.commit()
         
         logger.info(f"Database initialized: {settings.database_path}")
     

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   iot-core:
     build: .
@@ -24,6 +22,15 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+
+  webhook-receiver:
+    build: ./webhook_receiver
+    container_name: iot-webhook-receiver
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    networks:
+      - iot-network
 
   mqtt-broker:
     image: eclipse-mosquitto:2.0

@@ -4,6 +4,7 @@ IoT-Core MVP - Главный модуль приложения
 import logging
 import sys
 from contextlib import asynccontextmanager
+from sqlalchemy import text
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
@@ -108,7 +109,7 @@ async def health_check():
     try:
         # Проверяем подключение к БД
         async with db.get_session() as session:
-            await session.execute("SELECT 1")
+            await session.execute(text("SELECT 1"))
         
         return {
             "status": "healthy",

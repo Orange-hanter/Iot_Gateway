@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Header, Request
 from pydantic import BaseModel, Field, validator
-from app.database import get_db
+from app.database import db
 from app.drivers import get_driver
 from app.modules.storage import StorageService
 from app.config import settings
@@ -70,7 +70,7 @@ async def ingest_http(
     
     try:
         # Получаем устройство из БД
-        async with get_db().__anext__() as session:
+        async with db.get_session() as session:
             from sqlalchemy import select
             from app.database.models import Device
             
