@@ -34,6 +34,24 @@ docker-compose up -d
 docker-compose logs -f
 ```
 
+### Пересборка после обновления кода
+
+При добавлении новых драйверов или изменении кода:
+
+```bash
+# Автоматическая пересборка (рекомендуется)
+./rebuild.sh
+
+# Или вручную
+docker-compose down
+docker-compose build --no-cache
+docker-compose up -d
+
+# Проверка доступных драйверов
+curl http://localhost:8000/api/v1/drivers \
+  -H "X-API-Key: your-secret-api-key-change-this"
+```
+
 ### Доступ
 
 - **API**: http://localhost:8000
@@ -126,6 +144,23 @@ app/
 2. Наследуйтесь от `BaseDriver`
 3. Реализуйте методы: `validate()`, `parse()`, `get_config_schema()`
 4. Зарегистрируйте драйвер в `app/drivers/__init__.py`
+
+Подробнее: см. [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
+
+### Интеграция с Arduino
+
+Полная поддержка датчиков на базе Arduino с автоматическим обнаружением устройств:
+- 📁 Прошивки и схемы: [arduino/](arduino/)
+- 📖 Руководство: [docs/ARDUINO_MQ2.md](docs/ARDUINO_MQ2.md)
+- 🔌 Схема подключения: [arduino/WIRING.md](arduino/WIRING.md)
+
+## Документация
+
+- [API Reference](docs/API.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Development Guide](docs/DEVELOPMENT.md)
+- [Examples](docs/EXAMPLES.md)
+- [Arduino MQ2 Sensor](docs/ARDUINO_MQ2.md)
 
 ## Лицензия
 

@@ -4,6 +4,7 @@
 from typing import Dict, Type, Optional
 from app.drivers.base import BaseDriver
 from app.drivers.generic_json import GenericJsonDriver
+from app.drivers.arduino_mq2 import ArduinoMQ2Driver
 
 
 class DriverRegistry:
@@ -16,6 +17,7 @@ class DriverRegistry:
     def _register_builtin_drivers(self):
         """Регистрация встроенных драйверов"""
         self.register(GenericJsonDriver)
+        self.register(ArduinoMQ2Driver)
     
     def register(self, driver_class: Type[BaseDriver]):
         """

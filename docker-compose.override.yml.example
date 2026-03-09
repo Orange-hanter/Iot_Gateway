@@ -1,0 +1,60 @@
+# Docker Compose override для разработки с Arduino
+# 
+# Этот файл автоматически применяется поверх docker-compose.yml
+# Использование: docker-compose up -d
+#
+# Раскомментируйте нужные секции для вашей ОС
+
+services:
+  iot-core:
+    # === Linux USB Serial ===
+    # Раскомментируйте для доступа к Arduino через USB на Linux
+    # devices:
+    #   - /dev/ttyUSB0:/dev/ttyUSB0
+    #   - /dev/ttyUSB1:/dev/ttyUSB1
+    #   - /dev/ttyACM0:/dev/ttyACM0
+    #   - /dev/ttyACM1:/dev/ttyACM1
+    
+    # === macOS USB Serial ===
+    # На macOS Docker Desktop не поддерживает USB проброс напрямую
+    # Рекомендуется использовать bridge.py на хосте
+    
+    # === Windows USB Serial ===
+    # Раскомментируйте для Windows
+    # devices:
+    #   - COM3:COM3
+    #   - COM4:COM4
+    
+    # === Privileged режим (если devices не работает) ===
+    # ⚠️ ВНИМАНИЕ: Дает полный доступ к хосту. Только для разработки!
+    # privileged: true
+    
+    # === Дополнительные переменные окружения ===
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=DEBUG
+    
+    # === Монтирование исходного кода для разработки ===
+    # Раскомментируйте для hot-reload без пересборки
+    # volumes:
+    #   - ./app:/app/app:ro
+    #   - ./arduino:/app/arduino:ro
+
+  # === Arduino Bridge как отдельный сервис (опционально) ===
+  # Раскомментируйте если хотите запускать bridge в контейнере
+  # arduino-bridge:
+  #   build:
+  #     context: .
+  #     dockerfile: arduino/Dockerfile.bridge
+  #   container_name: iot-arduino-bridge
+  #   restart: unless-stopped
+  #   devices:
+  #     - /dev/ttyUSB0:/dev/ttyUSB0
+  #   environment:
+  #     - DEVICE_ID=${ARDUINO_DEVICE_ID}
+  #     - API_URL=http://iot-core:8000/api/v1/ingest/http
+  #     - API_KEY=${API_KEY}
+  #   depends_on:
+  #     - iot-core
+  #   networks:
+  #     - iot-network

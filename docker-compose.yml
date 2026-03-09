@@ -8,6 +8,14 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
+    # Доступ к Serial устройствам (Arduino, USB датчики)
+    # ВАЖНО: Раскомментируйте нужные устройства или используйте bridge.py на хосте
+    # devices:
+    #   - /dev/ttyUSB0:/dev/ttyUSB0  # Linux USB Serial
+    #   - /dev/ttyACM0:/dev/ttyACM0  # Linux USB Serial (альтернативный)
+    # Для настройки см. arduino/DOCKER.md
+    # Альтернатива: privileged режим (НЕ для продакшена!)
+    # privileged: true
     env_file:
       - .env
     environment:

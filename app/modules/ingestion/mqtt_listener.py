@@ -21,6 +21,7 @@ class MQTTListener:
     def __init__(self):
         self.client: Optional[mqtt.Client] = None
         self.running = False
+        self.loop: Optional[asyncio.AbstractEventLoop] = None
     
     def on_connect(self, client, userdata, flags, rc):
         """Callback при подключении к MQTT брокеру"""
@@ -64,8 +65,14 @@ class MQTTListener:
             if "timestamp" not in payload:
                 payload["timestamp"] = datetime.utcnow().isoformat()
             
-            # Обрабатываем асинхронно
-            asyncio.create_task(self.process_message(device_id, payload))
+            # Обрабатываем асинхронно через основной event loop
+            if self.loop and self.loop.is_running():
+                asyncio.run_coroutine_threadsafe(
+                    self.process_message(device_id, payload),
+                    self.loop
+                )
+            else:
+                logger.error("Event loop not available for MQTT message processing")
         
         except Exception as e:
             logger.error(f"Error processing MQTT message: {e}", exc_info=True)
@@ -156,6 +163,9 @@ class MQTTListener:
             return
         
         try:
+            # Сохраняем ссылку на текущий event loop
+            self.loop = asyncio.get_running_loop()
+            
             self.client = mqtt.Client(client_id=settings.mqtt_client_id)
             self.client.on_connect = self.on_connect
             self.client.on_disconnect = self.on_disconnect

@@ -1,0 +1,26 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Установка необходимых пакетов
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    usbutils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Установка Python зависимостей
+RUN pip install --no-cache-dir \
+    pyserial==3.5 \
+    requests==2.31.0 \
+    python-dotenv==1.0.1
+
+# Копирование bridge скрипта
+COPY arduino/bridge.py /app/bridge.py
+
+# Health check
+HEALTHCHECK --interval=60s --timeout=5s --retries=3 \
+    CMD ps aux | grep bridge.py | grep -v grep || exit 1
+
+# Запуск bridge
+ENTRYPOINT ["python", "/app/bridge.py"]
+CMD ["--help"]
