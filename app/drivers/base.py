@@ -64,3 +64,10 @@ class BaseDriver(ABC):
             "name": self.driver_name,
             "description": self.description
         }
+
+    def get_metric_hints(self) -> List[str]:
+        """
+        Возвращает список рекомендуемых имен метрик для этого драйвера.
+        По умолчанию подсказки не заданы.
+        """
+        return []

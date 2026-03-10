@@ -191,6 +191,17 @@ class ArduinoMQ2Driver(BaseDriver):
             },
             "required": ["location"]
         }
+
+    def get_metric_hints(self) -> List[str]:
+        """Рекомендуемые имена метрик для триггеров этого драйвера."""
+        return [
+            "gas_ppm",
+            "gas_analog",
+            "gas_voltage",
+            "gas_resistance",
+            "gas_ratio",
+            "gas_alert",
+        ]
     
     # === Serial Communication Methods ===
     

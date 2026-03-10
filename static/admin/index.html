@@ -772,17 +772,16 @@
         async function loadMetricsForTrigger() {
             try {
                 const deviceId = document.getElementById('trigger-device').value;
-                const url = deviceId
-                    ? `${API_BASE}/metrics?device_id=${encodeURIComponent(deviceId)}`
-                    : `${API_BASE}/metrics`;
+                const datalist = document.getElementById('trigger-metric-options');
 
-                const response = await fetch(url, {
+                const response = await fetch(deviceId
+                    ? `${API_BASE}/metrics/suggestions?device_id=${encodeURIComponent(deviceId)}`
+                    : `${API_BASE}/metrics/suggestions`, {
                     headers: {'X-API-Key': API_KEY}
                 });
                 const data = await response.json();
                 const metrics = Array.isArray(data.metrics) ? data.metrics : [];
 
-                const datalist = document.getElementById('trigger-metric-options');
                 datalist.innerHTML = '';
 
                 metrics.forEach(metricName => {

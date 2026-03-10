@@ -13,7 +13,7 @@ from app.database import get_db
 from app.database.models import Device, Telemetry, Trigger, WebhookLog, DeviceStatus
 from app.modules.storage import StorageService
 from app.modules.engine import webhook_dispatcher
-from app.drivers import list_available_drivers
+from app.drivers import list_available_drivers, get_driver
 
 logger = logging.getLogger(__name__)
 
@@ -443,6 +443,44 @@ async def get_metrics(
     metrics = [row[0] for row in result.all() if row[0]]
 
     return {"metrics": metrics}
+
+
+@router.get("/metrics/suggestions")
+async def get_metric_suggestions(
+    device_id: Optional[str] = Query(None, description="ID устройства для подсказок"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Получить подсказки метрик (из телеметрии + из драйвера устройства)."""
+    suggestions = set()
+
+    # 1. Метрики из телеметрии
+    query = select(Telemetry.metric_name).distinct().order_by(Telemetry.metric_name)
+    if device_id:
+        query = query.where(Telemetry.device_id == device_id)
+
+    result = await db.execute(query)
+    for row in result.all():
+        if row[0]:
+            suggestions.add(row[0])
+
+    # 2. Подсказки из драйвера выбранного устройства
+    driver_hints = []
+    driver_type = None
+    if device_id:
+        device_result = await db.execute(select(Device).where(Device.id == device_id))
+        device = device_result.scalar_one_or_none()
+        if device:
+            driver_type = device.driver_type
+            driver = get_driver(driver_type)
+            if driver:
+                driver_hints = driver.get_metric_hints()
+                suggestions.update(driver_hints)
+
+    return {
+        "metrics": sorted(suggestions),
+        "driver_type": driver_type,
+        "driver_hints": driver_hints,
+    }
 
 
 @router.get("/stats")
