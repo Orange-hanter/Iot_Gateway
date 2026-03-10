@@ -278,6 +278,62 @@ curl http://localhost:8000/api/v1/stats \
   -H "X-API-Key: your-secret-api-key-change-this"
 ```
 
+---
+
+## Пример 10: Создание Arduino Button+BPM280 устройства
+
+```bash
+curl -X POST http://localhost:8000/api/v1/devices \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-secret-api-key-change-this" \
+  -d '{
+    "name": "Button + BPM280 #1",
+    "driver_type": "arduino_button_bpm280",
+    "config": {
+      "location": "Test Bench",
+      "humidity_sensor_type": "bpm280",
+      "temperature_sensor_class": "generic"
+    }
+  }'
+```
+
+Триггер на каждое нажатие кнопки:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/triggers \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-secret-api-key-change-this" \
+  -d '{
+    "name": "Button press event",
+    "device_id": "YOUR-DEVICE-UUID",
+    "metric_name": "button_event",
+    "condition": "== 1",
+    "cooldown_sec": 0,
+    "firebase_notification": {
+      "url": "https://back.processnavigation.com/ci2e4kezb7/firebase-notifications/push-message",
+      "title": "Кнопка нажата",
+      "text": "Нажатие кнопки зафиксировано",
+      "ids": [1]
+    }
+  }'
+```
+
+Отправка тестового payload через HTTP:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/ingest/http \
+  -H "Content-Type: application/json" \
+  -d '{
+    "device_id": "YOUR-DEVICE-UUID",
+    "type": "data",
+    "sensor": "BUTTON_BPM280",
+    "button": 1,
+    "button_changed": true,
+    "temperature": 23.8,
+    "humidity": 46.1
+  }'
+```
+
 **Ответ:**
 ```json
 {

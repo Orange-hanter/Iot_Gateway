@@ -86,7 +86,9 @@ app/
 ├── drivers/               # Драйверы устройств
 │   ├── __init__.py       # Реестр драйверов
 │   ├── base.py           # Базовый интерфейс
-│   └── generic_json.py   # Generic JSON драйвер
+│   ├── generic_json.py   # Generic JSON драйвер
+│   ├── arduino_mq2.py    # Arduino MQ2 драйвер
+│   └── arduino_button_bpm280.py  # Arduino Button+BPM280 драйвер
 └── modules/               # Функциональные модули
     ├── ingestion/         # Прием данных
     │   ├── http_listener.py

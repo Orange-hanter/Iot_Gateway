@@ -5,6 +5,7 @@ from typing import Dict, Type, Optional
 from app.drivers.base import BaseDriver
 from app.drivers.generic_json import GenericJsonDriver
 from app.drivers.arduino_mq2 import ArduinoMQ2Driver
+from app.drivers.arduino_button_bpm280 import ArduinoButtonBPM280Driver
 
 
 class DriverRegistry:
@@ -18,6 +19,7 @@ class DriverRegistry:
         """Регистрация встроенных драйверов"""
         self.register(GenericJsonDriver)
         self.register(ArduinoMQ2Driver)
+        self.register(ArduinoButtonBPM280Driver)
     
     def register(self, driver_class: Type[BaseDriver]):
         """
