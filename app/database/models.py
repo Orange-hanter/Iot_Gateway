@@ -66,7 +66,8 @@ class Trigger(Base):
     device_id = Column(String(36), ForeignKey('devices.id', ondelete='CASCADE'), nullable=True)  # NULL = для всех
     metric_name = Column(String(100), nullable=False)
     condition = Column(String(255), nullable=False)  # Например: "> 25"
-    webhook_url = Column(String(500), nullable=False)
+    webhook_url = Column(String(500), nullable=True)  # Опционально
+    firebase_notification = Column(JSON, nullable=True)  # Firebase уведомление: {url, title, text, ids}
     cooldown_sec = Column(Integer, nullable=False, default=60)
     is_active = Column(Boolean, nullable=False, default=True)
     last_triggered_at = Column(DateTime, nullable=True)

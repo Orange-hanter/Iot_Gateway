@@ -4,6 +4,7 @@ Rule Engine - обработка правил и триггеров
 import logging
 import asyncio
 import re
+import ast
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 from sqlalchemy import select, and_
@@ -184,6 +185,10 @@ class RuleEngine:
         try:
             # Парсим условие
             condition = condition.strip()
+
+            # Логические выражения: "value > 30 and value < 80", "x >= 10 or x == 0"
+            if any(token in condition.lower() for token in (" and ", " or ", " not ", "(", ")", "value", "x")):
+                return self._evaluate_logical_expression(condition, value)
             
             # Поддерживаемые операторы
             if condition.startswith(">="):
@@ -219,6 +224,109 @@ class RuleEngine:
         except Exception as e:
             logger.error(f"Error evaluating condition '{condition}': {e}")
             return False
+
+    def _evaluate_logical_expression(self, condition: str, value: float) -> bool:
+        """
+        Безопасная оценка логического выражения для поля condition.
+
+        Поддерживает:
+        - value/x как переменную метрики
+        - and/or/not, скобки
+        - сравнения >, >=, <, <=, ==, !=
+        - числовые литералы
+        """
+        normalized = condition.strip()
+        # Поддержка популярных JS-подобных операторов
+        normalized = normalized.replace("&&", " and ").replace("||", " or ")
+
+        # Аккуратно заменяем "!" на "not", не трогая "!="
+        if "!=" in normalized:
+            normalized = normalized.replace("!=", " __NE__ ")
+            normalized = normalized.replace("!", " not ")
+            normalized = normalized.replace(" __NE__ ", " != ")
+        else:
+            normalized = normalized.replace("!", " not ")
+
+        tree = ast.parse(normalized, mode="eval")
+
+        allowed_nodes = (
+            ast.Expression,
+            ast.BoolOp,
+            ast.UnaryOp,
+            ast.Compare,
+            ast.Name,
+            ast.Load,
+            ast.Constant,
+            ast.And,
+            ast.Or,
+            ast.Not,
+            ast.Gt,
+            ast.GtE,
+            ast.Lt,
+            ast.LtE,
+            ast.Eq,
+            ast.NotEq,
+        )
+
+        for node in ast.walk(tree):
+            if not isinstance(node, allowed_nodes):
+                logger.warning(f"Unsafe node in condition expression: {type(node).__name__}")
+                return False
+
+        def eval_node(node):
+            if isinstance(node, ast.Expression):
+                return eval_node(node.body)
+
+            if isinstance(node, ast.BoolOp):
+                values = [bool(eval_node(v)) for v in node.values]
+                if isinstance(node.op, ast.And):
+                    return all(values)
+                if isinstance(node.op, ast.Or):
+                    return any(values)
+                return False
+
+            if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+                return not bool(eval_node(node.operand))
+
+            if isinstance(node, ast.Name):
+                if node.id in ("value", "x"):
+                    return float(value)
+                raise ValueError(f"Unknown variable: {node.id}")
+
+            if isinstance(node, ast.Constant):
+                if isinstance(node.value, (int, float, bool)):
+                    return node.value
+                raise ValueError("Only numeric and boolean constants are allowed")
+
+            if isinstance(node, ast.Compare):
+                left = eval_node(node.left)
+                for op, comparator in zip(node.ops, node.comparators):
+                    right = eval_node(comparator)
+
+                    if isinstance(op, ast.Gt):
+                        ok = left > right
+                    elif isinstance(op, ast.GtE):
+                        ok = left >= right
+                    elif isinstance(op, ast.Lt):
+                        ok = left < right
+                    elif isinstance(op, ast.LtE):
+                        ok = left <= right
+                    elif isinstance(op, ast.Eq):
+                        ok = abs(left - right) < 0.001
+                    elif isinstance(op, ast.NotEq):
+                        ok = abs(left - right) >= 0.001
+                    else:
+                        return False
+
+                    if not ok:
+                        return False
+                    left = right
+
+                return True
+
+            raise ValueError(f"Unsupported node: {type(node).__name__}")
+
+        return bool(eval_node(tree))
     
     async def _fire_webhook(
         self,
@@ -230,7 +338,7 @@ class RuleEngine:
         timestamp: datetime
     ):
         """
-        Отправка вебхука при срабатывании триггера.
+        Отправка вебхука и/или Firebase уведомления при срабатывании триггера.
         
         Args:
             session: Сессия БД
@@ -240,34 +348,80 @@ class RuleEngine:
             metric_value: Значение метрики
             timestamp: Время события
         """
-        # Формируем payload вебхука
-        webhook_payload = {
+        # Контекст для подстановки в шаблоны
+        context = {
             "trigger_id": trigger.id,
             "trigger_name": trigger.name,
             "device_id": device_id,
             "metric": metric_name,
+            "metric_name": metric_name,
             "value": metric_value,
             "condition": trigger.condition,
-            "timestamp": timestamp.isoformat(),
-            "message": f"Trigger '{trigger.name}' fired: {metric_name} {trigger.condition} (value: {metric_value})"
+            "timestamp": timestamp.isoformat()
         }
         
-        # Отправляем вебхук
-        result = await webhook_dispatcher.send_webhook(
-            trigger.webhook_url,
-            webhook_payload
+        # Отправляем Firebase уведомление (если настроено)
+        firebase_result = None
+        if trigger.firebase_notification:
+            try:
+                firebase_result = await webhook_dispatcher.send_firebase_notification(
+                    trigger.firebase_notification,
+                    context
+                )
+                logger.info(
+                    f"Firebase notification for trigger {trigger.id}: "
+                    f"{'success' if firebase_result['success'] else 'failed'}"
+                )
+            except Exception as e:
+                logger.error(f"Error sending Firebase notification: {e}", exc_info=True)
+                firebase_result = {
+                    "success": False,
+                    "error_message": str(e)
+                }
+        
+        # Отправляем вебхук (если настроен)
+        webhook_result = None
+        if trigger.webhook_url:
+            # Формируем payload вебхука
+            webhook_payload = {
+                **context,
+                "message": f"Trigger '{trigger.name}' fired: {metric_name} {trigger.condition} (value: {metric_value})"
+            }
+            
+            try:
+                webhook_result = await webhook_dispatcher.send_webhook(
+                    trigger.webhook_url,
+                    webhook_payload
+                )
+                logger.info(
+                    f"Webhook for trigger {trigger.id}: "
+                    f"{'success' if webhook_result['success'] else 'failed'}"
+                )
+            except Exception as e:
+                logger.error(f"Error sending webhook: {e}", exc_info=True)
+                webhook_result = {
+                    "success": False,
+                    "error_message": str(e)
+                }
+        
+        # Определяем общий успех: хотя бы одна отправка успешна
+        overall_success = (
+            (firebase_result and firebase_result.get("success")) or
+            (webhook_result and webhook_result.get("success"))
         )
         
-        # Логируем результат
+        # Логируем результат (предпочитаем webhook_result для совместимости)
+        primary_result = webhook_result or firebase_result or {"success": False}
+        
         webhook_log = WebhookLog(
             trigger_id=trigger.id,
             device_id=device_id,
             metric_name=metric_name,
             metric_value=metric_value,
-            status_code=result.get("status_code"),
-            response_body=result.get("response_body"),
-            success=result["success"],
-            error_message=result.get("error_message")
+            status_code=primary_result.get("status_code"),
+            response_body=primary_result.get("response_body"),
+            success=overall_success,
+            error_message=primary_result.get("error_message")
         )
         session.add(webhook_log)
         

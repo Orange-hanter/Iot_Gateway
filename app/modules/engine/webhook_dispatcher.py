@@ -1,10 +1,10 @@
 """
-Webhook Dispatcher - отправка HTTP запросов на внешние URL
+Webhook Dispatcher - отправка HTTP запросов на внешние URL и Firebase уведомлений
 """
 import logging
 import asyncio
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import httpx
 from app.config import settings
 
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class WebhookDispatcher:
-    """Диспетчер отправки вебхуков"""
+    """Диспетчер отправки вебхуков и Firebase уведомлений"""
     
     def __init__(self):
         self.client = httpx.AsyncClient(timeout=settings.webhook_timeout_seconds)
@@ -102,6 +102,72 @@ class WebhookDispatcher:
             "response_body": None,
             "error_message": last_error
         }
+    
+    async def send_firebase_notification(
+        self,
+        firebase_config: Dict[str, Any],
+        context: Dict[str, Any],
+        max_retries: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Отправка Firebase уведомления.
+        
+        Args:
+            firebase_config: Конфигурация Firebase {url, title, text, ids}
+            context: Контекст с данными для подстановки {device_id, metric_name, value, ...}
+            max_retries: Максимальное количество попыток
+            
+        Returns:
+            Результат отправки
+        """
+        try:
+            url = firebase_config.get("url")
+            title = firebase_config.get("title", "")
+            text = firebase_config.get("text", "")
+            user_ids = firebase_config.get("ids", [])
+            
+            if not url or not user_ids:
+                logger.error("Firebase notification requires url and ids")
+                return {
+                    "success": False,
+                    "status_code": None,
+                    "response_body": None,
+                    "error_message": "Missing url or ids in firebase_config"
+                }
+            
+            # Подстановка значений в title и text
+            for key, value in context.items():
+                placeholder = f"{{{key}}}"
+                title = title.replace(placeholder, str(value))
+                text = text.replace(placeholder, str(value))
+            
+            # Формируем payload для Firebase
+            payload = {
+                "title": title,
+                "text": text,
+                "ids": user_ids
+            }
+            
+            logger.info(f"Sending Firebase notification to {len(user_ids)} users: {title}")
+            
+            # Отправляем через стандартный метод send_webhook
+            result = await self.send_webhook(url, payload, max_retries)
+            
+            if result["success"]:
+                logger.info(f"Firebase notification sent successfully")
+            else:
+                logger.error(f"Failed to send Firebase notification: {result.get('error_message')}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error sending Firebase notification: {e}", exc_info=True)
+            return {
+                "success": False,
+                "status_code": None,
+                "response_body": None,
+                "error_message": f"Exception: {str(e)}"
+            }
     
     async def close(self):
         """Закрытие HTTP клиента"""

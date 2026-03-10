@@ -214,6 +214,49 @@
             border-radius: 4px;
             margin-bottom: 1rem;
         }
+
+        .condition-builder {
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 0.75rem;
+            background: #fafafa;
+            margin-top: 0.75rem;
+        }
+
+        .condition-row {
+            display: grid;
+            grid-template-columns: 90px 1fr 110px 1fr auto;
+            gap: 0.5rem;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .condition-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .builder-actions {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin-top: 0.75rem;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-sm {
+            padding: 0.35rem 0.6rem;
+            font-size: 12px;
+        }
+
+        @media (max-width: 800px) {
+            .condition-row {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
@@ -297,17 +340,61 @@
                         <input type="text" id="trigger-name" placeholder="Высокая температура">
                     </div>
                     <div class="form-group">
+                        <label>Устройство</label>
+                        <select id="trigger-device" onchange="loadMetricsForTrigger()">
+                            <option value="">Все устройства</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
                         <label>Метрика</label>
-                        <input type="text" id="trigger-metric" placeholder="temperature">
+                        <input type="text" id="trigger-metric" list="trigger-metric-options" placeholder="temperature (например: temperature, humidity, mq2_ppm)">
+                        <datalist id="trigger-metric-options"></datalist>
                     </div>
                     <div class="form-group">
                         <label>Условие</label>
-                        <input type="text" id="trigger-condition" placeholder="> 30">
+                        <input type="text" id="trigger-condition" placeholder="value > 30 and value < 80">
+                        <div class="condition-builder">
+                            <div id="condition-rows"></div>
+                            <div class="builder-actions">
+                                <button type="button" class="btn btn-primary btn-sm" onclick="addConditionRow('and')">+ И</button>
+                                <button type="button" class="btn btn-primary btn-sm" onclick="addConditionRow('or')">+ ИЛИ</button>
+                                <button type="button" class="btn btn-secondary btn-sm" onclick="applyConditionBuilder()">Собрать условие</button>
+                                <button type="button" class="btn btn-secondary btn-sm" onclick="resetConditionBuilder()">Сброс</button>
+                            </div>
+                            <div style="margin-top:0.5rem; color:#6c757d; font-size:12px;">
+                                Пример: <code>value &gt; 30 and value &lt; 80</code>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <h3 style="margin-top: 1.5rem; margin-bottom: 1rem; color: #2c3e50; font-size: 18px;">Firebase уведомления (обязательно)</h3>
+                    
+                    <div class="form-group">
+                        <label>Заголовок уведомления</label>
+                        <input type="text" id="trigger-firebase-title" placeholder="Предупреждение о температуре">
                     </div>
                     <div class="form-group">
+                        <label>Текст уведомления</label>
+                        <textarea id="trigger-firebase-text" rows="3" placeholder="Температура превысила допустимый порог и составляет {value}°C"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>ID пользователей (через запятую)</label>
+                        <input type="text" id="trigger-firebase-ids" placeholder="1,4,5">
+                    </div>
+                    
+                    <h3 style="margin-top: 1.5rem; margin-bottom: 1rem; color: #2c3e50; font-size: 18px;">Webhook (опционально)</h3>
+                    
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="checkbox" id="trigger-webhook-enabled" style="width: auto; margin-right: 0.5rem;" onchange="toggleWebhookField()">
+                            Включить отправку webhook
+                        </label>
+                    </div>
+                    <div class="form-group" id="webhook-url-group" style="display:none;">
                         <label>Webhook URL</label>
                         <input type="text" id="trigger-url" placeholder="https://example.com/webhook">
                     </div>
+                    
                     <button class="btn btn-success" onclick="createTrigger()">Создать</button>
                     <button class="btn" onclick="hideCreateTriggerForm()">Отмена</button>
                 </div>
@@ -315,15 +402,18 @@
                     <thead>
                         <tr>
                             <th>Название</th>
+                            <th>Устройство</th>
                             <th>Метрика</th>
                             <th>Условие</th>
+                            <th>Firebase</th>
+                            <th>Webhook</th>
                             <th>Статус</th>
                             <th>Последнее срабатывание</th>
                             <th>Действия</th>
                         </tr>
                     </thead>
                     <tbody id="triggers-list">
-                        <tr><td colspan="6" class="loading">Загрузка...</td></tr>
+                        <tr><td colspan="9" class="loading">Загрузка...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -354,6 +444,8 @@
     <script>
         const API_BASE = '/api/v1';
         const API_KEY = 'your-secret-api-key-change-this'; // Замените на ваш ключ
+        const CONDITION_OPERATORS = ['>', '>=', '<', '<=', '==', '!='];
+        let conditionBuilderRows = [];
         
         // Переключение вкладок
         function switchTab(tabName) {
@@ -426,22 +518,45 @@
                 
                 const tbody = document.getElementById('triggers-list');
                 if (triggers.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center">Нет триггеров</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center">Нет триггеров</td></tr>';
                     return;
                 }
                 
-                tbody.innerHTML = triggers.map(t => `
-                    <tr>
-                        <td>${t.name}</td>
-                        <td>${t.metric_name}</td>
-                        <td>${t.condition}</td>
-                        <td><span class="badge badge-${t.is_active ? 'success' : 'warning'}">${t.is_active ? 'Активен' : 'Неактивен'}</span></td>
-                        <td>${t.last_triggered_at ? new Date(t.last_triggered_at).toLocaleString() : 'Никогда'}</td>
-                        <td>
-                            <button class="btn btn-danger btn-sm" onclick="deleteTrigger(${t.id})">Удалить</button>
-                        </td>
-                    </tr>
-                `).join('');
+                // Загружаем устройства для отображения имен
+                const devicesResponse = await fetch(`${API_BASE}/devices`, {
+                    headers: {'X-API-Key': API_KEY}
+                });
+                const devices = await devicesResponse.json();
+                const deviceMap = {};
+                devices.forEach(d => deviceMap[d.id] = d.name);
+                
+                tbody.innerHTML = triggers.map(t => {
+                    const firebaseInfo = t.firebase_notification ? 
+                        `✓ ${t.firebase_notification.title || 'Настроено'}` : 
+                        '—';
+                    const webhookInfo = t.webhook_url ? 
+                        `<span class="badge badge-success">Включен</span>` : 
+                        `<span class="badge" style="background: #e9ecef; color: #6c757d;">Выключен</span>`;
+                    const deviceInfo = t.device_id ? 
+                        (deviceMap[t.device_id] || t.device_id.substring(0, 8) + '...') : 
+                        '<span style="color: #999;">Все устройства</span>';
+                    
+                    return `
+                        <tr>
+                            <td>${t.name}</td>
+                            <td>${deviceInfo}</td>
+                            <td>${t.metric_name}</td>
+                            <td>${t.condition}</td>
+                            <td>${firebaseInfo}</td>
+                            <td>${webhookInfo}</td>
+                            <td><span class="badge badge-${t.is_active ? 'success' : 'warning'}">${t.is_active ? 'Активен' : 'Неактивен'}</span></td>
+                            <td>${t.last_triggered_at ? new Date(t.last_triggered_at).toLocaleString() : 'Никогда'}</td>
+                            <td>
+                                <button class="btn btn-danger btn-sm" onclick="deleteTrigger(${t.id})">Удалить</button>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
             } catch (e) {
                 console.error('Error loading triggers:', e);
             }
@@ -478,18 +593,206 @@
         // Формы создания
         function showCreateDeviceForm() {
             document.getElementById('device-form').style.display = 'block';
+            loadAvailableDrivers();
         }
         
         function hideCreateDeviceForm() {
             document.getElementById('device-form').style.display = 'none';
         }
+
+        // Загрузка доступных драйверов для формы создания устройства
+        async function loadAvailableDrivers() {
+            const select = document.getElementById('device-driver');
+
+            try {
+                const response = await fetch(`${API_BASE}/drivers`, {
+                    headers: {'X-API-Key': API_KEY}
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                const rawDrivers = data.drivers;
+                let drivers = [];
+
+                if (Array.isArray(rawDrivers)) {
+                    drivers = rawDrivers;
+                } else if (rawDrivers && typeof rawDrivers === 'object') {
+                    drivers = Object.keys(rawDrivers);
+                }
+
+                select.innerHTML = '';
+
+                if (drivers.length === 0) {
+                    select.innerHTML = '<option value="generic_json">generic_json</option>';
+                    return;
+                }
+
+                drivers.forEach(driverName => {
+                    const option = document.createElement('option');
+                    option.value = driverName;
+                    option.textContent = driverName;
+                    select.appendChild(option);
+                });
+            } catch (e) {
+                console.error('Error loading drivers:', e);
+                // Fallback, чтобы форма оставалась рабочей даже при ошибке API
+                select.innerHTML = '<option value="generic_json">generic_json</option>';
+            }
+        }
         
         function showCreateTriggerForm() {
             document.getElementById('trigger-form').style.display = 'block';
+            loadDevicesForTrigger();
+            loadMetricsForTrigger();
+            resetConditionBuilder();
         }
         
         function hideCreateTriggerForm() {
             document.getElementById('trigger-form').style.display = 'none';
+            // Сброс полей
+            document.getElementById('trigger-name').value = '';
+            document.getElementById('trigger-device').value = '';
+            document.getElementById('trigger-metric').value = '';
+            document.getElementById('trigger-condition').value = '';
+            document.getElementById('trigger-firebase-title').value = '';
+            document.getElementById('trigger-firebase-text').value = '';
+            document.getElementById('trigger-firebase-ids').value = '';
+            document.getElementById('trigger-webhook-enabled').checked = false;
+            document.getElementById('trigger-url').value = '';
+            document.getElementById('webhook-url-group').style.display = 'none';
+            resetConditionBuilder();
+        }
+
+        function renderConditionBuilder() {
+            const container = document.getElementById('condition-rows');
+            container.innerHTML = '';
+
+            conditionBuilderRows.forEach((row, index) => {
+                const rowElement = document.createElement('div');
+                rowElement.className = 'condition-row';
+
+                const connectorSelect = index === 0
+                    ? '<select disabled><option>НАЧАЛО</option></select>'
+                    : `<select onchange="updateConditionRow(${index}, 'connector', this.value)">
+                        <option value="and" ${row.connector === 'and' ? 'selected' : ''}>И</option>
+                        <option value="or" ${row.connector === 'or' ? 'selected' : ''}>ИЛИ</option>
+                    </select>`;
+
+                const operatorOptions = CONDITION_OPERATORS.map(op =>
+                    `<option value="${op}" ${row.operator === op ? 'selected' : ''}>${op}</option>`
+                ).join('');
+
+                rowElement.innerHTML = `
+                    ${connectorSelect}
+                    <input type="text" value="value" disabled>
+                    <select onchange="updateConditionRow(${index}, 'operator', this.value)">${operatorOptions}</select>
+                    <input type="number" step="any" value="${row.threshold}" placeholder="Порог" onchange="updateConditionRow(${index}, 'threshold', this.value)">
+                    <button type="button" class="btn btn-danger btn-sm" onclick="removeConditionRow(${index})" ${conditionBuilderRows.length === 1 ? 'disabled' : ''}>x</button>
+                `;
+
+                container.appendChild(rowElement);
+            });
+        }
+
+        function addConditionRow(connector) {
+            conditionBuilderRows.push({
+                connector: connector || 'and',
+                operator: '>',
+                threshold: ''
+            });
+            renderConditionBuilder();
+        }
+
+        function removeConditionRow(index) {
+            if (conditionBuilderRows.length <= 1) {
+                return;
+            }
+            conditionBuilderRows.splice(index, 1);
+            renderConditionBuilder();
+        }
+
+        function updateConditionRow(index, field, value) {
+            conditionBuilderRows[index][field] = value;
+        }
+
+        function applyConditionBuilder() {
+            const completeRows = conditionBuilderRows.filter(row => String(row.threshold).trim() !== '');
+
+            if (completeRows.length === 0) {
+                alert('Добавьте хотя бы одно условие с порогом');
+                return;
+            }
+
+            let expression = `value ${completeRows[0].operator} ${completeRows[0].threshold}`;
+
+            for (let i = 1; i < completeRows.length; i++) {
+                const row = completeRows[i];
+                expression += ` ${row.connector} value ${row.operator} ${row.threshold}`;
+            }
+
+            document.getElementById('trigger-condition').value = expression;
+        }
+
+        function resetConditionBuilder() {
+            conditionBuilderRows = [{ connector: 'and', operator: '>', threshold: '' }];
+            renderConditionBuilder();
+        }
+        
+        function toggleWebhookField() {
+            const enabled = document.getElementById('trigger-webhook-enabled').checked;
+            document.getElementById('webhook-url-group').style.display = enabled ? 'block' : 'none';
+        }
+        
+        // Загрузка устройств для выбора в триггере
+        async function loadDevicesForTrigger() {
+            try {
+                const response = await fetch(`${API_BASE}/devices`, {
+                    headers: {'X-API-Key': API_KEY}
+                });
+                const devices = await response.json();
+                
+                const select = document.getElementById('trigger-device');
+                select.innerHTML = '<option value="">Все устройства</option>';
+                
+                devices.forEach(d => {
+                    const option = document.createElement('option');
+                    option.value = d.id;
+                    option.textContent = `${d.name} (${d.id.substring(0, 8)}...)`;
+                    select.appendChild(option);
+                });
+            } catch (e) {
+                console.error('Error loading devices for trigger:', e);
+            }
+        }
+
+        // Загрузка существующих метрик для выбора в триггере
+        async function loadMetricsForTrigger() {
+            try {
+                const deviceId = document.getElementById('trigger-device').value;
+                const url = deviceId
+                    ? `${API_BASE}/metrics?device_id=${encodeURIComponent(deviceId)}`
+                    : `${API_BASE}/metrics`;
+
+                const response = await fetch(url, {
+                    headers: {'X-API-Key': API_KEY}
+                });
+                const data = await response.json();
+                const metrics = Array.isArray(data.metrics) ? data.metrics : [];
+
+                const datalist = document.getElementById('trigger-metric-options');
+                datalist.innerHTML = '';
+
+                metrics.forEach(metricName => {
+                    const option = document.createElement('option');
+                    option.value = metricName;
+                    datalist.appendChild(option);
+                });
+            } catch (e) {
+                console.error('Error loading metrics for trigger:', e);
+            }
         }
         
         // Создание устройства
@@ -527,13 +830,73 @@
         // Создание триггера
         async function createTrigger() {
             const name = document.getElementById('trigger-name').value;
+            const deviceId = document.getElementById('trigger-device').value;
             const metric = document.getElementById('trigger-metric').value;
-            const condition = document.getElementById('trigger-condition').value;
+            let condition = document.getElementById('trigger-condition').value;
+            const firebaseTitle = document.getElementById('trigger-firebase-title').value;
+            const firebaseText = document.getElementById('trigger-firebase-text').value;
+            const firebaseIds = document.getElementById('trigger-firebase-ids').value;
+            const webhookEnabled = document.getElementById('trigger-webhook-enabled').checked;
             const url = document.getElementById('trigger-url').value;
             
-            if (!name || !metric || !condition || !url) {
-                alert('Заполните все поля');
+            // Если поле условия пустое, пробуем собрать его из конструктора автоматически
+            if (!condition.trim()) {
+                const completeRows = conditionBuilderRows.filter(row => String(row.threshold).trim() !== '');
+                if (completeRows.length > 0) {
+                    condition = `value ${completeRows[0].operator} ${completeRows[0].threshold}`;
+                    for (let i = 1; i < completeRows.length; i++) {
+                        const row = completeRows[i];
+                        condition += ` ${row.connector} value ${row.operator} ${row.threshold}`;
+                    }
+                    document.getElementById('trigger-condition').value = condition;
+                }
+            }
+
+            // Валидация обязательных полей
+            if (!name || !metric || !condition) {
+                alert('Заполните название, метрику и условие');
                 return;
+            }
+            
+            if (!firebaseTitle || !firebaseText || !firebaseIds) {
+                alert('Заполните все поля Firebase уведомлений (заголовок, текст, ID пользователей)');
+                return;
+            }
+            
+            if (webhookEnabled && !url) {
+                alert('Укажите Webhook URL или отключите webhook');
+                return;
+            }
+            
+            // Парсинг ID пользователей
+            let userIds;
+            try {
+                userIds = firebaseIds.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+                if (userIds.length === 0) {
+                    alert('Укажите хотя бы один корректный ID пользователя');
+                    return;
+                }
+            } catch (e) {
+                alert('Неверный формат ID пользователей. Используйте формат: 1,2,3');
+                return;
+            }
+            
+            const triggerData = {
+                name,
+                device_id: deviceId || null,  // null означает "Все устройства"
+                metric_name: metric,
+                condition,
+                firebase_notification: {
+                    url: 'https://back.processnavigation.com/ci2e4kezb7/firebase-notifications/push-message',
+                    title: firebaseTitle,
+                    text: firebaseText,
+                    ids: userIds
+                }
+            };
+            
+            // Добавляем webhook только если он включен
+            if (webhookEnabled && url) {
+                triggerData.webhook_url = url;
             }
             
             try {
@@ -543,12 +906,7 @@
                         'Content-Type': 'application/json',
                         'X-API-Key': API_KEY
                     },
-                    body: JSON.stringify({
-                        name,
-                        metric_name: metric,
-                        condition,
-                        webhook_url: url
-                    })
+                    body: JSON.stringify(triggerData)
                 });
                 
                 if (response.ok) {
@@ -556,7 +914,24 @@
                     loadTriggers();
                     loadStats();
                 } else {
-                    alert('Ошибка создания триггера');
+                    let errorMessage = response.statusText || 'Неизвестная ошибка';
+                    const contentType = response.headers.get('content-type') || '';
+
+                    if (contentType.includes('application/json')) {
+                        try {
+                            const error = await response.json();
+                            errorMessage = error.detail || JSON.stringify(error);
+                        } catch (parseError) {
+                            errorMessage = 'Сервер вернул некорректный JSON';
+                        }
+                    } else {
+                        const errorText = await response.text();
+                        if (errorText) {
+                            errorMessage = errorText;
+                        }
+                    }
+
+                    alert('Ошибка создания триггера: ' + errorMessage);
                 }
             } catch (e) {
                 alert('Ошибка: ' + e.message);
@@ -599,6 +974,7 @@
         window.addEventListener('load', () => {
             loadStats();
             loadDevices();
+            loadAvailableDrivers();
             setInterval(loadStats, 30000); // Обновляем статистику каждые 30 сек
         });
     </script>

@@ -57,13 +57,22 @@ class TelemetryResponse(BaseModel):
         from_attributes = True
 
 
+class FirebaseNotification(BaseModel):
+    """Модель Firebase уведомления"""
+    url: str = Field(..., description="URL для отправки уведомления")
+    title: str = Field(..., description="Заголовок уведомления")
+    text: str = Field(..., description="Текст уведомления")
+    ids: List[int] = Field(..., description="ID пользователей")
+
+
 class TriggerCreate(BaseModel):
     """Модель создания триггера"""
     name: str = Field(..., description="Название триггера")
     device_id: Optional[str] = Field(None, description="ID устройства (null для всех)")
     metric_name: str = Field(..., description="Имя метрики")
     condition: str = Field(..., description="Условие (например, '> 25')")
-    webhook_url: str = Field(..., description="URL вебхука")
+    webhook_url: Optional[str] = Field(None, description="URL вебхука (опционально)")
+    firebase_notification: Optional[FirebaseNotification] = Field(None, description="Firebase уведомление (обязательно)")
     cooldown_sec: int = Field(default=60, description="Cooldown в секундах")
     is_active: bool = Field(default=True, description="Активен ли триггер")
 
@@ -75,7 +84,8 @@ class TriggerResponse(BaseModel):
     device_id: Optional[str]
     metric_name: str
     condition: str
-    webhook_url: str
+    webhook_url: Optional[str]
+    firebase_notification: Optional[dict]
     cooldown_sec: int
     is_active: bool
     last_triggered_at: Optional[datetime]
@@ -258,6 +268,13 @@ async def create_trigger(
     db: AsyncSession = Depends(get_db)
 ):
     """Создать новый триггер"""
+    # Проверка: должен быть указан хотя бы один способ уведомления
+    if not trigger_data.firebase_notification and not trigger_data.webhook_url:
+        raise HTTPException(
+            status_code=400, 
+            detail="Either firebase_notification or webhook_url must be provided"
+        )
+    
     # Если указан device_id, проверяем существование устройства
     if trigger_data.device_id:
         query = select(Device).where(Device.id == trigger_data.device_id)
@@ -268,12 +285,17 @@ async def create_trigger(
             raise HTTPException(status_code=404, detail="Device not found")
     
     # Создаем триггер
+    firebase_data = None
+    if trigger_data.firebase_notification:
+        firebase_data = trigger_data.firebase_notification.model_dump()
+    
     trigger = Trigger(
         name=trigger_data.name,
         device_id=trigger_data.device_id,
         metric_name=trigger_data.metric_name,
         condition=trigger_data.condition,
-        webhook_url=trigger_data.webhook_url,
+        webhook_url=trigger_data.webhook_url or "",
+        firebase_notification=firebase_data,
         cooldown_sec=trigger_data.cooldown_sec,
         is_active=trigger_data.is_active
     )
@@ -282,7 +304,7 @@ async def create_trigger(
     await db.commit()
     await db.refresh(trigger)
     
-    logger.info(f"Created trigger: {trigger.id}")
+    logger.info(f"Created trigger: {trigger.id} (Firebase: {bool(firebase_data)}, Webhook: {bool(trigger_data.webhook_url)})")
     return trigger
 
 
@@ -300,12 +322,24 @@ async def update_trigger(
     if not trigger:
         raise HTTPException(status_code=404, detail="Trigger not found")
     
+    # Проверка: должен быть указан хотя бы один способ уведомления
+    if not trigger_data.firebase_notification and not trigger_data.webhook_url:
+        raise HTTPException(
+            status_code=400, 
+            detail="Either firebase_notification or webhook_url must be provided"
+        )
+    
     # Обновляем поля
+    firebase_data = None
+    if trigger_data.firebase_notification:
+        firebase_data = trigger_data.firebase_notification.model_dump()
+    
     trigger.name = trigger_data.name
     trigger.device_id = trigger_data.device_id
     trigger.metric_name = trigger_data.metric_name
     trigger.condition = trigger_data.condition
-    trigger.webhook_url = trigger_data.webhook_url
+    trigger.webhook_url = trigger_data.webhook_url or ""
+    trigger.firebase_notification = firebase_data
     trigger.cooldown_sec = trigger_data.cooldown_sec
     trigger.is_active = trigger_data.is_active
     
@@ -392,6 +426,23 @@ async def get_drivers():
     """Получить список доступных драйверов"""
     drivers = list_available_drivers()
     return {"drivers": drivers}
+
+
+@router.get("/metrics")
+async def get_metrics(
+    device_id: Optional[str] = Query(None, description="Фильтр по устройству"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Получить список существующих метрик из телеметрии"""
+    query = select(Telemetry.metric_name).distinct().order_by(Telemetry.metric_name)
+
+    if device_id:
+        query = query.where(Telemetry.device_id == device_id)
+
+    result = await db.execute(query)
+    metrics = [row[0] for row in result.all() if row[0]]
+
+    return {"metrics": metrics}
 
 
 @router.get("/stats")
