@@ -41,6 +41,7 @@ class TemperatureSensorAdapter:
             return None
 
         candidate_fields = [
+            "ds18b20_temperature",
             "temperature",
             "temperature_c",
             "temp",
