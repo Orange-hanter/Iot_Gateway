@@ -141,19 +141,21 @@ class ArduinoBridge:
             logger.info(f"Resent {count} buffered messages")
         
         return count
+
+    def discover_arduino(self) -> Optional[str]:
         """Автоматическое обнаружение Arduino"""
         logger.info("Searching for Arduino...")
-        
+
         ports = serial.tools.list_ports.comports()
-        
+
         for port in ports:
             # Поиск по VID/PID или описанию
             if port.vid in [0x2341, 0x2A03] or \
-               (port.description and any(keyword in port.description.lower() 
-                                        for keyword in ['arduino', 'mega', 'ch340', 'ch341'])):
+               (port.description and any(keyword in port.description.lower()
+                                        for keyword in ["arduino", "mega", "ch340", "ch341"])):
                 logger.info(f"Found Arduino: {port.device} - {port.description}")
                 return port.device
-        
+
         logger.warning("No Arduino found")
         return None
     
@@ -336,10 +338,9 @@ class ArduinoBridge:
 
 def signal_handler(signum, frame):
     """Обработчик сигнала для graceful shutdown"""
-    logger.info("\nReceived interrupt signal")
+    logger.info(f"Received signal {signum}, stopping bridge...")
     if hasattr(signal_handler, 'bridge'):
         signal_handler.bridge.stop()
-    sys.exit(0)
 
 
 def main():

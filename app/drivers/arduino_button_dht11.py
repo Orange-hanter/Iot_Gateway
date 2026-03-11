@@ -124,8 +124,22 @@ class ArduinoButtonDHT11Driver(BaseDriver):
             logger.warning("Missing required field: button")
             return False
 
-        if "humidity" not in raw and "dht11_humidity" not in raw:
-            logger.warning("Missing required humidity field")
+        # Для стабильности принимаем payload даже при частичном sensor_read_error,
+        # если присутствует кнопка и хотя бы один температурно-влажностный индикатор.
+        has_humidity = "humidity" in raw or "dht11_humidity" in raw
+        has_temperature = any(
+            field in raw
+            for field in [
+                "temperature",
+                "ds18b20_temperature",
+                "dht11_temperature",
+                "temperature_c",
+                "temp",
+                "temp_c",
+            ]
+        )
+        if not has_humidity and not has_temperature and "button_presses" not in raw:
+            logger.warning("Missing humidity/temperature payload for arduino_button_dht11")
             return False
 
         return True
@@ -176,6 +190,35 @@ class ArduinoButtonDHT11Driver(BaseDriver):
                 "name": "temperature",
                 "value": temperature_value,
                 "unit": "C",
+            })
+
+        # Сохраняем температуры источников отдельно, чтобы видеть расхождение сенсоров.
+        if raw.get("ds18b20_temperature") is not None:
+            try:
+                result.append({
+                    "name": "ds18b20_temperature",
+                    "value": float(raw["ds18b20_temperature"]),
+                    "unit": "C",
+                })
+            except (TypeError, ValueError):
+                logger.warning("Invalid ds18b20_temperature value: %s", raw.get("ds18b20_temperature"))
+
+        if raw.get("dht11_temperature") is not None:
+            try:
+                result.append({
+                    "name": "dht11_temperature",
+                    "value": float(raw["dht11_temperature"]),
+                    "unit": "C",
+                })
+            except (TypeError, ValueError):
+                logger.warning("Invalid dht11_temperature value: %s", raw.get("dht11_temperature"))
+
+        if "ds18b20_ok" in raw:
+            ok_value = self._to_bool(raw.get("ds18b20_ok"))
+            result.append({
+                "name": "ds18b20_ok",
+                "value": 1.0 if ok_value else 0.0,
+                "unit": None,
             })
 
         if "button_changed" in raw:
@@ -251,6 +294,9 @@ class ArduinoButtonDHT11Driver(BaseDriver):
             "button_presses",
             "button_event",
             "temperature",
+            "ds18b20_temperature",
+            "dht11_temperature",
+            "ds18b20_ok",
             "humidity",
         ]
 

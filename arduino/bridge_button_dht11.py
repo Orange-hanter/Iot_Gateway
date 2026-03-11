@@ -57,6 +57,7 @@ class ArduinoButtonDHT11Bridge:
     ):
         self.device_id = device_id
         self.port = port
+        self.manual_port = port is not None
         self.api_url = api_url
         self.api_key = api_key
         self.baud_rate = baud_rate
@@ -121,7 +122,7 @@ class ArduinoButtonDHT11Bridge:
                         data = pickle.load(f)
                     
                     # Пытаемся отправить
-                    if self.send_to_api(data):
+                    if self.send_to_api(data, from_buffer=True):
                         buffer_file.unlink()  # Удаляем файл после успешной отправки
                         count += 1
                         self.stats["resent"] += 1
@@ -147,11 +148,14 @@ class ArduinoButtonDHT11Bridge:
         return None
 
     def connect(self) -> bool:
-        if not self.port:
+        if not self.manual_port:
             self.port = self.discover_arduino()
             if not self.port:
                 logger.warning("No Arduino found")
                 return False
+        elif not self.port:
+            logger.warning("Manual serial port is empty")
+            return False
 
         try:
             self.serial_connection = serial.Serial(
@@ -166,6 +170,8 @@ class ArduinoButtonDHT11Bridge:
         except Exception as e:
             logger.error("Connection failed: %s", e)
             self.serial_connection = None
+            if not self.manual_port:
+                self.port = None
             return False
 
     def disconnect(self):
@@ -173,11 +179,50 @@ class ArduinoButtonDHT11Bridge:
             self.serial_connection.close()
         self.serial_connection = None
 
-    def send_to_api(self, data: dict) -> bool:
+    def _normalize_payload(self, data: dict) -> dict:
+        """Приводит payload к согласованной схеме для API/драйвера."""
+        normalized = dict(data)
+        normalized["type"] = "data"
+        normalized["sensor"] = "BUTTON_DHT11"
+
+        # Унифицированная влажность
+        if "humidity" not in normalized and "dht11_humidity" in normalized:
+            normalized["humidity"] = normalized.get("dht11_humidity")
+
+        # Унифицированные температуры
+        ds_temp = normalized.get("ds18b20_temperature")
+        dht_temp = normalized.get("dht11_temperature")
+
+        if ds_temp is None and "temperature_ds18b20" in normalized:
+            ds_temp = normalized.get("temperature_ds18b20")
+            normalized["ds18b20_temperature"] = ds_temp
+
+        if dht_temp is None and "temperature_dht11" in normalized:
+            dht_temp = normalized.get("temperature_dht11")
+            normalized["dht11_temperature"] = dht_temp
+
+        if "temperature" not in normalized:
+            if ds_temp is not None:
+                normalized["temperature"] = ds_temp
+            elif dht_temp is not None:
+                normalized["temperature"] = dht_temp
+
+        if "ds18b20_ok" not in normalized:
+            try:
+                if ds_temp is not None:
+                    ds_val = float(ds_temp)
+                    normalized["ds18b20_ok"] = -100.0 < ds_val < 125.0
+            except (TypeError, ValueError):
+                normalized["ds18b20_ok"] = False
+
+        return normalized
+
+    def send_to_api(self, data: dict, from_buffer: bool = False) -> bool:
         # API ожидает формат {"device_id": ..., "metrics": {<arduino_json>}}
+        normalized_data = self._normalize_payload(data)
         payload = {
             "device_id": self.device_id,
-            "metrics": data,
+            "metrics": normalized_data,
         }
         try:
             response = requests.post(
@@ -189,13 +234,13 @@ class ArduinoButtonDHT11Bridge:
             if response.status_code == 200:
                 logger.info(
                     "Sent data: button=%s temp=%s hum=%s",
-                    data.get("button"),
-                    data.get("temperature"),
-                    data.get("humidity"),
+                    normalized_data.get("button"),
+                    normalized_data.get("temperature"),
+                    normalized_data.get("humidity"),
                 )
                 
                 # Если успешно отправили, пытаемся отправить буферизованные данные
-                if self.stats["buffered"] > 0:
+                if (not from_buffer) and any(self.buffer_dir.glob("*.pkl")):
                     self._flush_buffer()
                 
                 return True
@@ -248,7 +293,7 @@ class ArduinoButtonDHT11Bridge:
 
             # Периодически пытаемся отправить буферизованные данные (каждые 30 сек)
             current_time = time.time()
-            if current_time - last_buffer_flush > 30 and self.stats["buffered"] > 0:
+            if current_time - last_buffer_flush > 30 and any(self.buffer_dir.glob("*.pkl")):
                 self._flush_buffer()
                 last_buffer_flush = current_time
 

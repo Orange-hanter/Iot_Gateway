@@ -50,6 +50,50 @@ curl -X POST http://localhost:8000/api/v1/devices \
 }
 ```
 
+## Согласованная схема передачи (Firmware -> Bridge -> API)
+
+Bridge в [arduino/bridge_button_dht11.py](arduino/bridge_button_dht11.py) нормализует payload перед отправкой в API, чтобы драйвер получал стабильный контракт.
+
+Нормализованные поля:
+- `type`: всегда `data`
+- `sensor`: всегда `BUTTON_DHT11`
+- `humidity`: основное поле влажности (`dht11_humidity` маппится в `humidity`)
+- `temperature`: основная температура (приоритет `ds18b20_temperature`, fallback `dht11_temperature`)
+- `ds18b20_temperature`: температура DS18B20 (если доступна)
+- `dht11_temperature`: температура DHT11 (если доступна)
+- `ds18b20_ok`: флаг корректности DS18B20 (`true/false`)
+- `button`, `button_changed`, `button_presses`, `button_event`, `timestamp`
+
+Пример нормализованного payload в `metrics`:
+
+```json
+{
+  "type": "data",
+  "sensor": "BUTTON_DHT11",
+  "button": 1,
+  "button_changed": true,
+  "button_presses": 1,
+  "button_event": 1,
+  "humidity": 45.2,
+  "temperature": 24.6,
+  "ds18b20_temperature": 24.6,
+  "dht11_temperature": 24.1,
+  "ds18b20_ok": true,
+  "timestamp": 123456
+}
+```
+
+Драйвер сохраняет метрики:
+- `button_state`
+- `button_changed`
+- `button_presses`
+- `button_event`
+- `humidity`
+- `temperature`
+- `ds18b20_temperature`
+- `dht11_temperature`
+- `ds18b20_ok`
+
 ## Запуск моста
 
 ```bash
