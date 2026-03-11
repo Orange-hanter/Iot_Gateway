@@ -50,6 +50,31 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def list_arduino_ports() -> None:
+    """Вывести список всех обнаруженных Arduino-совместимых портов."""
+    ARDUINO_VIDS = [0x2341, 0x2A03, 0x1A86]
+    ARDUINO_KEYWORDS = ["arduino", "mega", "ch340", "ch341", "cp210", "ftdi"]
+    ports = serial.tools.list_ports.comports()
+    found = []
+    for p in ports:
+        vid_match = p.vid in ARDUINO_VIDS
+        hwid_lower = (p.hwid or "").lower()
+        desc_lower = (p.description or "").lower()
+        kw_match = any(k in desc_lower or k in hwid_lower for k in ARDUINO_KEYWORDS)
+        if vid_match or kw_match:
+            found.append(p)
+    if not found:
+        print("No Arduino-compatible devices found.")
+        return
+    print(f"{'Port':<25} {'Description':<35} {'USB Serial':<25} {'VID:PID'}")
+    print("-" * 100)
+    for p in found:
+        vid_pid = f"{p.vid:04X}:{p.pid:04X}" if p.vid and p.pid else "-"
+        print(f"{p.device:<25} {(p.description or '-')[:34]:<35} {(p.serial_number or '-'):<25} {vid_pid}")
+    print()
+    print("To pin a specific device in bridges.conf, use:  usb:<USB Serial>")
+
+
 class ArduinoBridge:
     """Мост между Arduino и GatewayDemo API"""
     
@@ -62,7 +87,13 @@ class ArduinoBridge:
         baud_rate: int = DEFAULT_BAUD_RATE
     ):
         self.device_id = device_id
-        self.port = port
+        # Support "usb:SERIAL" syntax — match device by USB serial number
+        if port and port.startswith("usb:"):
+            self.usb_serial: Optional[str] = port[4:]
+            self.port: Optional[str] = None
+        else:
+            self.usb_serial = None
+            self.port = port
         self.api_url = api_url
         self.api_key = api_key
         self.baud_rate = baud_rate
@@ -142,28 +173,40 @@ class ArduinoBridge:
         
         return count
 
-    def discover_arduino(self) -> Optional[str]:
+    def discover_arduino(self, usb_serial: Optional[str] = None) -> Optional[str]:
         """Автоматическое обнаружение Arduino"""
+        ARDUINO_VIDS = [0x2341, 0x2A03, 0x1A86]  # Official Arduino, Arduino SA, WCH (CH340/CH341)
+        ARDUINO_KEYWORDS = ["arduino", "mega", "ch340", "ch341", "cp210", "ftdi"]
         logger.info("Searching for Arduino...")
 
         ports = serial.tools.list_ports.comports()
 
         for port in ports:
-            # Поиск по VID/PID или описанию
-            if port.vid in [0x2341, 0x2A03] or \
-               (port.description and any(keyword in port.description.lower()
-                                        for keyword in ["arduino", "mega", "ch340", "ch341"])):
-                logger.info(f"Found Arduino: {port.device} - {port.description}")
-                return port.device
+            if usb_serial:
+                if port.serial_number == usb_serial:
+                    logger.info(f"Found Arduino by USB serial {usb_serial}: {port.device} - {port.description}")
+                    return port.device
+            else:
+                vid_match = port.vid in ARDUINO_VIDS
+                hwid_lower = (port.hwid or "").lower()
+                desc_lower = (port.description or "").lower()
+                kw_match = any(k in desc_lower or k in hwid_lower for k in ARDUINO_KEYWORDS)
+                if vid_match or kw_match:
+                    logger.info(f"Found Arduino: {port.device} - {port.description} "
+                                f"(vid={hex(port.vid) if port.vid else None} hwid={port.hwid})")
+                    return port.device
 
-        logger.warning("No Arduino found")
+        if usb_serial:
+            logger.warning(f"No Arduino found with USB serial: {usb_serial}")
+        else:
+            logger.warning("No Arduino found")
         return None
     
     def connect(self) -> bool:
         """Подключение к Arduino"""
         # Автообнаружение если порт не указан
         if not self.port:
-            self.port = self.discover_arduino()
+            self.port = self.discover_arduino(usb_serial=self.usb_serial)
             if not self.port:
                 return False
         
@@ -310,14 +353,15 @@ class ArduinoBridge:
                 else:
                     time.sleep(0.1)
                     
-            except serial.SerialException as e:
-                logger.error(f"Serial error: {e}")
+            except (serial.SerialException, OSError) as e:
+                logger.error(f"Serial error (device disconnected?): {e}")
                 self.disconnect()
                 time.sleep(RECONNECT_DELAY)
-                
+
             except Exception as e:
                 logger.error(f"Unexpected error: {e}")
-                time.sleep(1.0)
+                self.disconnect()
+                time.sleep(RECONNECT_DELAY)
         
         # Завершение
         self.disconnect()
@@ -362,13 +406,18 @@ Examples:
     
     parser.add_argument(
         '--device-id',
-        required=True,
         help='Device UUID from GatewayDemo'
     )
     
     parser.add_argument(
         '--port',
-        help='Serial port (e.g., /dev/ttyUSB0 or COM3). Auto-discover if not specified'
+        help="Serial port, 'usb:SERIAL' to match by USB serial number, or omit for auto-detect"
+    )
+    
+    parser.add_argument(
+        '--list-ports',
+        action='store_true',
+        help='List available Arduino ports and exit'
     )
     
     parser.add_argument(
@@ -397,7 +446,14 @@ Examples:
     )
     
     args = parser.parse_args()
-    
+
+    if args.list_ports:
+        list_arduino_ports()
+        sys.exit(0)
+
+    if not args.device_id:
+        parser.error("--device-id is required")
+
     # Настройка уровня логирования
     if args.verbose:
         logger.setLevel(logging.DEBUG)

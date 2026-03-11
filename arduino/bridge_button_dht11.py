@@ -44,6 +44,31 @@ logger = logging.getLogger(__name__)
 ACTIVE_BRIDGE = None
 
 
+def list_arduino_ports() -> None:
+    """Вывести список всех обнаруженных Arduino-совместимых портов."""
+    ARDUINO_VIDS = [0x2341, 0x2A03, 0x1A86]
+    ARDUINO_KEYWORDS = ["arduino", "mega", "ch340", "ch341", "cp210", "ftdi"]
+    ports = serial.tools.list_ports.comports()
+    found = []
+    for p in ports:
+        vid_match = p.vid in ARDUINO_VIDS
+        hwid_lower = (p.hwid or "").lower()
+        desc_lower = (p.description or "").lower()
+        kw_match = any(k in desc_lower or k in hwid_lower for k in ARDUINO_KEYWORDS)
+        if vid_match or kw_match:
+            found.append(p)
+    if not found:
+        print("No Arduino-compatible devices found.")
+        return
+    print(f"{'Port':<25} {'Description':<35} {'USB Serial':<25} {'VID:PID'}")
+    print("-" * 100)
+    for p in found:
+        vid_pid = f"{p.vid:04X}:{p.pid:04X}" if p.vid and p.pid else "-"
+        print(f"{p.device:<25} {(p.description or '-')[:34]:<35} {(p.serial_number or '-'):<25} {vid_pid}")
+    print()
+    print("To pin a specific device in bridges.conf, use:  usb:<USB Serial>")
+
+
 class ArduinoButtonDHT11Bridge:
     """Мост между Arduino Button+DHT11 и API."""
 
@@ -56,14 +81,25 @@ class ArduinoButtonDHT11Bridge:
         baud_rate: int = DEFAULT_BAUD_RATE,
     ):
         self.device_id = device_id
-        self.port = port
-        self.manual_port = port is not None
+        # Support "usb:SERIAL" syntax — match device by USB serial number
+        if port and port.startswith("usb:"):
+            self.usb_serial: Optional[str] = port[4:]
+            self.port: Optional[str] = None
+            self.manual_port = False
+        else:
+            self.usb_serial = None
+            self.port = port
+            self.manual_port = port is not None
         self.api_url = api_url
         self.api_key = api_key
         self.baud_rate = baud_rate
         self.serial_connection: Optional[serial.Serial] = None
         self.running = False
-        
+
+        # Состояние переподключения
+        self._disconnect_time: Optional[float] = None
+        self._reconnect_attempts: int = 0
+
         # Локальный буфер для переотправки при недоступности API
         self.buffer_dir = BUFFER_DIR / device_id
         self.buffer_dir.mkdir(parents=True, exist_ok=True)
@@ -137,21 +173,48 @@ class ArduinoButtonDHT11Bridge:
         
         return count
 
-    def discover_arduino(self) -> Optional[str]:
+    def _reconnect_backoff(self) -> float:
+        """Exponential backoff: 5s → 10s → 20s → 40s → 60s (cap)."""
+        return min(RECONNECT_DELAY * (2 ** min(self._reconnect_attempts, 4)), 60)
+
+    def _on_disconnect(self, reason: str) -> None:
+        """Зафиксировать обрыв, закрыть порт, сбросить для повторного обнаружения."""
+        if self._disconnect_time is None:
+            self._disconnect_time = time.time()
+        self.disconnect()
+        if not self.manual_port:
+            self.port = None
+        logger.warning("Arduino disconnected: %s", reason)
+
+    def discover_arduino(self, usb_serial: Optional[str] = None) -> Optional[str]:
+        ARDUINO_VIDS = [0x2341, 0x2A03, 0x1A86]  # Official Arduino, Arduino SA, WCH (CH340/CH341)
+        ARDUINO_KEYWORDS = ["arduino", "mega", "ch340", "ch341", "cp210", "ftdi"]
         ports = serial.tools.list_ports.comports()
         for port in ports:
-            if port.vid in [0x2341, 0x2A03] or (
-                port.description and any(k in port.description.lower() for k in ["arduino", "mega", "ch340", "ch341"])
-            ):
-                logger.info("Found Arduino: %s - %s", port.device, port.description)
-                return port.device
+            if usb_serial:
+                if port.serial_number == usb_serial:
+                    logger.info("Found Arduino by USB serial %s: %s - %s", usb_serial, port.device, port.description)
+                    return port.device
+            else:
+                vid_match = port.vid in ARDUINO_VIDS
+                hwid_lower = (port.hwid or "").lower()
+                desc_lower = (port.description or "").lower()
+                kw_match = any(k in desc_lower or k in hwid_lower for k in ARDUINO_KEYWORDS)
+                if vid_match or kw_match:
+                    logger.info("Found Arduino: %s - %s (vid=%s hwid=%s)",
+                                port.device, port.description,
+                                hex(port.vid) if port.vid else None, port.hwid)
+                    return port.device
         return None
 
     def connect(self) -> bool:
         if not self.manual_port:
-            self.port = self.discover_arduino()
+            self.port = self.discover_arduino(usb_serial=self.usb_serial)
             if not self.port:
-                logger.warning("No Arduino found")
+                if self.usb_serial:
+                    logger.warning("No Arduino found with USB serial: %s", self.usb_serial)
+                else:
+                    logger.warning("No Arduino found")
                 return False
         elif not self.port:
             logger.warning("Manual serial port is empty")
@@ -278,20 +341,42 @@ class ArduinoButtonDHT11Bridge:
     def run(self):
         self.running = True
         logger.info("Starting Button+DHT11 bridge for device %s", self.device_id)
-        logger.info(f"Local buffer directory: {self.buffer_dir}")
-        
-        # Попытаемся отправить буферизованные данные если есть
+        logger.info("Local buffer directory: %s", self.buffer_dir)
+
         self._flush_buffer()
-        
         last_buffer_flush = time.time()
 
         while self.running:
+            # ── Секция подключения / переподключения ─────────────────────────
             if not self.serial_connection or not self.serial_connection.is_open:
-                if not self.connect():
-                    time.sleep(RECONNECT_DELAY)
-                    continue
+                if self._disconnect_time is not None:
+                    # Это повторное подключение — применяем backoff
+                    self._reconnect_attempts += 1
+                    delay = self._reconnect_backoff()
+                    downtime = time.time() - self._disconnect_time
+                    logger.info(
+                        "Reconnect attempt #%d (down %.0fs, waiting %.0fs before retry)...",
+                        self._reconnect_attempts, downtime, delay,
+                    )
+                    time.sleep(delay)
 
-            # Периодически пытаемся отправить буферизованные данные (каждые 30 сек)
+                if self.connect():
+                    if self._disconnect_time is not None:
+                        downtime = time.time() - self._disconnect_time
+                        logger.info(
+                            "Reconnected on %s after %.1fs downtime (%d attempt(s))",
+                            self.port, downtime, self._reconnect_attempts,
+                        )
+                        self.stats["reconnects"] += 1
+                        self._disconnect_time = None
+                        self._reconnect_attempts = 0
+                else:
+                    # Первая попытка провалилась — начинаем отсчёт простоя
+                    if self._disconnect_time is None:
+                        self._disconnect_time = time.time()
+                continue
+
+            # ── Периодический сброс буфера ────────────────────────────────────
             current_time = time.time()
             if current_time - last_buffer_flush > 30 and any(self.buffer_dir.glob("*.pkl")):
                 self._flush_buffer()
@@ -302,6 +387,7 @@ class ArduinoButtonDHT11Bridge:
                 time.sleep(0.1)
                 continue
 
+            # ── Чтение данных ─────────────────────────────────────────────────
             try:
                 if conn.in_waiting:
                     line = conn.readline().decode().strip()
@@ -309,13 +395,10 @@ class ArduinoButtonDHT11Bridge:
                         self.process_line(line)
                 else:
                     time.sleep(0.1)
-            except serial.SerialException as e:
-                logger.error("Serial error: %s", e)
-                self.disconnect()
-                time.sleep(RECONNECT_DELAY)
+            except (serial.SerialException, OSError) as e:
+                self._on_disconnect(f"serial error: {e}")
             except Exception as e:
-                logger.error("Unexpected error: %s", e)
-                time.sleep(1.0)
+                self._on_disconnect(f"unexpected error: {e}")
 
         self.disconnect()
         logger.info(
@@ -340,12 +423,23 @@ def main():
     global ACTIVE_BRIDGE
 
     parser = argparse.ArgumentParser(description="Arduino Button+DHT11 to GatewayDemo bridge")
-    parser.add_argument("--device-id", required=True, help="Device UUID from GatewayDemo")
-    parser.add_argument("--port", help="Serial port (auto-discover if not specified)")
+    parser.add_argument("--device-id", help="Device UUID from GatewayDemo")
+    parser.add_argument(
+        "--port",
+        help="Serial port, 'usb:SERIAL' to match by USB serial number, or omit for auto-detect",
+    )
     parser.add_argument("--api-url", default=DEFAULT_API_URL, help=f"API URL (default: {DEFAULT_API_URL})")
     parser.add_argument("--api-key", default=DEFAULT_API_KEY, help="API key")
     parser.add_argument("--baud-rate", type=int, default=DEFAULT_BAUD_RATE, help="Serial baud rate")
+    parser.add_argument("--list-ports", action="store_true", help="List available Arduino ports and exit")
     args = parser.parse_args()
+
+    if args.list_ports:
+        list_arduino_ports()
+        sys.exit(0)
+
+    if not args.device_id:
+        parser.error("--device-id is required")
 
     bridge = ArduinoButtonDHT11Bridge(
         device_id=args.device_id,
