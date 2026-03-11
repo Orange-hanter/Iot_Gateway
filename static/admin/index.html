@@ -252,8 +252,162 @@
             font-size: 12px;
         }
 
+        .toolbar {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .toolbar .search-input {
+            max-width: 340px;
+            width: 100%;
+            padding: 0.55rem 0.75rem;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .copy-id-btn {
+            border: none;
+            background: #eef6ff;
+            color: #1f5f99;
+            border-radius: 6px;
+            padding: 0.3rem 0.45rem;
+            font-size: 12px;
+            cursor: pointer;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+        }
+
+        .copy-id-btn:hover {
+            background: #dbeafe;
+        }
+
+        .btn-info {
+            background: #0ea5a0;
+            color: #fff;
+        }
+
+        .btn-info:hover {
+            background: #0b8a86;
+        }
+
+        .toast-container {
+            position: fixed;
+            right: 16px;
+            top: 16px;
+            z-index: 1200;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .toast {
+            min-width: 220px;
+            max-width: 360px;
+            color: #fff;
+            border-radius: 8px;
+            padding: 0.75rem 0.9rem;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+            animation: toast-in 0.2s ease-out;
+            font-size: 13px;
+        }
+
+        .toast-success {
+            background: #1f8f4e;
+        }
+
+        .toast-error {
+            background: #b93535;
+        }
+
+        @keyframes toast-in {
+            from {
+                transform: translateY(-8px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.55);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            z-index: 1100;
+        }
+
+        .modal.open {
+            display: flex;
+        }
+
+        .modal-content {
+            width: min(700px, 100%);
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 18px 40px rgba(0,0,0,0.25);
+            overflow: hidden;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid #eef2f7;
+        }
+
+        .modal-title {
+            font-size: 18px;
+            color: #1e293b;
+            font-weight: 600;
+        }
+
+        .modal-close {
+            border: none;
+            background: #f1f5f9;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        .modal-body {
+            padding: 1rem 1.25rem 1.25rem;
+            display: grid;
+            grid-template-columns: 180px 1fr;
+            gap: 0.6rem 0.9rem;
+        }
+
+        .modal-label {
+            color: #475569;
+            font-weight: 600;
+        }
+
+        .modal-value {
+            color: #0f172a;
+            word-break: break-word;
+        }
+
+        .hint-text {
+            color: #6b7280;
+            font-size: 12px;
+        }
+
         @media (max-width: 800px) {
             .condition-row {
+                grid-template-columns: 1fr;
+            }
+
+            .modal-body {
                 grid-template-columns: 1fr;
             }
         }
@@ -296,6 +450,7 @@
         <div id="tab-devices" class="tab-content active">
             <div class="card">
                 <h2>Устройства</h2>
+                <div class="hint-text">Нажмите на ID устройства, чтобы скопировать полный идентификатор</div>
                 <button class="btn btn-primary" onclick="showCreateDeviceForm()">+ Добавить устройство</button>
                 <div id="device-form" style="display:none; margin-top: 1rem;">
                     <div class="form-group">
@@ -333,7 +488,10 @@
         <div id="tab-triggers" class="tab-content">
             <div class="card">
                 <h2>Триггеры</h2>
-                <button class="btn btn-primary" onclick="showCreateTriggerForm()">+ Добавить триггер</button>
+                <div class="toolbar">
+                    <button class="btn btn-primary" onclick="showCreateTriggerForm()">+ Добавить триггер</button>
+                    <input class="search-input" type="text" id="trigger-search" placeholder="Быстрый поиск по триггерам" oninput="filterTriggersTable()">
+                </div>
                 <div id="trigger-form" style="display:none; margin-top: 1rem;">
                     <div class="form-group">
                         <label>Название</label>
@@ -364,6 +522,13 @@
                             <div style="margin-top:0.5rem; color:#6c757d; font-size:12px;">
                                 Пример: <code>value &gt; 30 and value &lt; 80</code>
                             </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Cooldown (сек) - интервал между срабатываниями</label>
+                        <input type="number" id="trigger-cooldown" placeholder="0" value="0" min="0" step="1">
+                        <div style="margin-top:0.5rem; color:#6c757d; font-size:12px;">
+                            0 = срабатывает на каждое событие | 60 = максимум раз в минуту
                         </div>
                     </div>
                     
@@ -440,12 +605,26 @@
             </div>
         </div>
     </div>
+
+    <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+    <div id="trigger-details-modal" class="modal" onclick="handleModalBackdropClick(event)">
+        <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="trigger-details-title">
+            <div class="modal-header">
+                <div class="modal-title" id="trigger-details-title">Детали триггера</div>
+                <button type="button" class="modal-close" onclick="closeTriggerDetailsModal()">x</button>
+            </div>
+            <div class="modal-body" id="trigger-details-body"></div>
+        </div>
+    </div>
     
     <script>
         const API_BASE = '/api/v1';
         const API_KEY = 'your-secret-api-key-change-this'; // Замените на ваш ключ
         const CONDITION_OPERATORS = ['>', '>=', '<', '<=', '==', '!='];
         let conditionBuilderRows = [];
+        let triggersCache = [];
+        let triggerDevicesMap = {};
         
         // Переключение вкладок
         function switchTab(tabName) {
@@ -493,7 +672,7 @@
                 
                 tbody.innerHTML = devices.map(d => `
                     <tr>
-                        <td>${d.id.substring(0, 8)}...</td>
+                        <td><button type="button" class="copy-id-btn" title="Скопировать полный ID" onclick="copyToClipboard('${d.id}')">${d.id.substring(0, 8)}...</button></td>
                         <td>${d.name}</td>
                         <td>${d.driver_type}</td>
                         <td><span class="badge badge-${d.status === 'active' ? 'success' : 'warning'}">${d.status}</span></td>
@@ -529,6 +708,8 @@
                 const devices = await devicesResponse.json();
                 const deviceMap = {};
                 devices.forEach(d => deviceMap[d.id] = d.name);
+                triggerDevicesMap = deviceMap;
+                triggersCache = triggers;
                 
                 tbody.innerHTML = triggers.map(t => {
                     const firebaseInfo = t.firebase_notification ? 
@@ -540,9 +721,15 @@
                     const deviceInfo = t.device_id ? 
                         (deviceMap[t.device_id] || t.device_id.substring(0, 8) + '...') : 
                         '<span style="color: #999;">Все устройства</span>';
+                    const searchText = [
+                        t.name,
+                        t.metric_name,
+                        t.condition,
+                        t.device_id ? (deviceMap[t.device_id] || t.device_id) : 'Все устройства'
+                    ].join(' ').toLowerCase();
                     
                     return `
-                        <tr>
+                        <tr data-search="${escapeHtml(searchText)}">
                             <td>${t.name}</td>
                             <td>${deviceInfo}</td>
                             <td>${t.metric_name}</td>
@@ -552,13 +739,131 @@
                             <td><span class="badge badge-${t.is_active ? 'success' : 'warning'}">${t.is_active ? 'Активен' : 'Неактивен'}</span></td>
                             <td>${t.last_triggered_at ? new Date(t.last_triggered_at).toLocaleString() : 'Никогда'}</td>
                             <td>
+                                <button class="btn btn-info btn-sm" onclick="showTriggerDetails(${JSON.stringify(t.id)})">Детали</button>
                                 <button class="btn btn-danger btn-sm" onclick="deleteTrigger(${t.id})">Удалить</button>
                             </td>
                         </tr>
                     `;
                 }).join('');
+                filterTriggersTable();
             } catch (e) {
                 console.error('Error loading triggers:', e);
+            }
+        }
+
+        function escapeHtml(text) {
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        async function copyToClipboard(text) {
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(text);
+                } else {
+                    const helper = document.createElement('textarea');
+                    helper.value = text;
+                    helper.style.position = 'fixed';
+                    helper.style.left = '-9999px';
+                    document.body.appendChild(helper);
+                    helper.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(helper);
+                }
+                showToast('ID устройства скопирован', 'success');
+            } catch (e) {
+                showToast('Не удалось скопировать ID', 'error');
+            }
+        }
+
+        function showToast(message, type) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type === 'error' ? 'error' : 'success'}`;
+            toast.textContent = message;
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.remove();
+            }, 2600);
+        }
+
+        function filterTriggersTable() {
+            const query = (document.getElementById('trigger-search')?.value || '').trim().toLowerCase();
+            const tbody = document.getElementById('triggers-list');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+
+            let visibleCount = 0;
+            rows.forEach(row => {
+                if (!row.dataset.search) {
+                    return;
+                }
+                const isVisible = !query || row.dataset.search.includes(query);
+                row.style.display = isVisible ? '' : 'none';
+                if (isVisible) {
+                    visibleCount += 1;
+                }
+            });
+
+            const existingEmpty = document.getElementById('trigger-filter-empty');
+            if (existingEmpty) {
+                existingEmpty.remove();
+            }
+
+            if (rows.length > 0 && visibleCount === 0) {
+                const emptyRow = document.createElement('tr');
+                emptyRow.id = 'trigger-filter-empty';
+                emptyRow.innerHTML = '<td colspan="9" style="text-align:center; color:#6b7280;">Ничего не найдено по фильтру</td>';
+                tbody.appendChild(emptyRow);
+            }
+        }
+
+        function showTriggerDetails(triggerId) {
+            const trigger = triggersCache.find(item => String(item.id) === String(triggerId));
+            if (!trigger) {
+                showToast('Не удалось найти детали триггера', 'error');
+                return;
+            }
+
+            const deviceDisplay = trigger.device_id
+                ? (triggerDevicesMap[trigger.device_id] || trigger.device_id)
+                : 'Все устройства';
+            const firebase = trigger.firebase_notification || {};
+            const details = [
+                ['ID', trigger.id],
+                ['Название', trigger.name],
+                ['Устройство', deviceDisplay],
+                ['Метрика', trigger.metric_name || '—'],
+                ['Условие', trigger.condition || '—'],
+                ['Webhook URL', trigger.webhook_url || 'Выключен'],
+                ['Firebase URL', firebase.url || '—'],
+                ['Firebase заголовок', firebase.title || '—'],
+                ['Firebase текст', firebase.text || '—'],
+                ['Firebase IDs', Array.isArray(firebase.ids) ? firebase.ids.join(', ') : '—'],
+                ['Статус', trigger.is_active ? 'Активен' : 'Неактивен'],
+                ['Последнее срабатывание', trigger.last_triggered_at ? new Date(trigger.last_triggered_at).toLocaleString() : 'Никогда']
+            ];
+
+            const body = document.getElementById('trigger-details-body');
+            body.innerHTML = details.map(([label, value]) => `
+                <div class="modal-label">${escapeHtml(label)}</div>
+                <div class="modal-value">${escapeHtml(value)}</div>
+            `).join('');
+
+            document.getElementById('trigger-details-modal').classList.add('open');
+        }
+
+        function closeTriggerDetailsModal() {
+            document.getElementById('trigger-details-modal').classList.remove('open');
+        }
+
+        function handleModalBackdropClick(event) {
+            if (event.target.id === 'trigger-details-modal') {
+                closeTriggerDetailsModal();
             }
         }
         
@@ -818,6 +1123,7 @@
                     hideCreateDeviceForm();
                     loadDevices();
                     loadStats();
+                    showToast('Устройство создано', 'success');
                 } else {
                     alert('Ошибка создания устройства');
                 }
@@ -832,6 +1138,7 @@
             const deviceId = document.getElementById('trigger-device').value;
             const metric = document.getElementById('trigger-metric').value;
             let condition = document.getElementById('trigger-condition').value;
+            const cooldown = parseInt(document.getElementById('trigger-cooldown').value) || 0;
             const firebaseTitle = document.getElementById('trigger-firebase-title').value;
             const firebaseText = document.getElementById('trigger-firebase-text').value;
             const firebaseIds = document.getElementById('trigger-firebase-ids').value;
@@ -885,6 +1192,7 @@
                 device_id: deviceId || null,  // null означает "Все устройства"
                 metric_name: metric,
                 condition,
+                cooldown_sec: cooldown,
                 firebase_notification: {
                     url: 'https://back.processnavigation.com/ci2e4kezb7/firebase-notifications/push-message',
                     title: firebaseTitle,
@@ -912,6 +1220,7 @@
                     hideCreateTriggerForm();
                     loadTriggers();
                     loadStats();
+                    showToast('Триггер создан', 'success');
                 } else {
                     let errorMessage = response.statusText || 'Неизвестная ошибка';
                     const contentType = response.headers.get('content-type') || '';
@@ -948,6 +1257,7 @@
                 });
                 loadDevices();
                 loadStats();
+                showToast('Устройство удалено', 'success');
             } catch (e) {
                 alert('Ошибка: ' + e.message);
             }
@@ -964,10 +1274,17 @@
                 });
                 loadTriggers();
                 loadStats();
+                showToast('Триггер удален', 'success');
             } catch (e) {
                 alert('Ошибка: ' + e.message);
             }
         }
+
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                closeTriggerDetailsModal();
+            }
+        });
         
         // Инициализация
         window.addEventListener('load', () => {

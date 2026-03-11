@@ -70,12 +70,23 @@ class LoggingMiddleware(BaseHTTPMiddleware):
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Middleware для ограничения частоты запросов (простая реализация)"""
     
+    # Эндпоинты исключены из rate limiting (данные с Arduino/MQTT идут часто)
+    EXCLUDED_PATHS = [
+        "/api/v1/ingest/http",  # IoT data ingestion - много быстрых запросов
+        "/api/v1/ingest/mqtt",  # MQTT ingestion
+        "/health",
+    ]
+    
     def __init__(self, app, rate_limit: int = 60):
         super().__init__(app)
         self.rate_limit = rate_limit
         self.requests = {}  # IP -> список timestamp'ов
     
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        # Пропускаем rate limiting для критичных эндпоинтов
+        if any(request.url.path.startswith(path) for path in self.EXCLUDED_PATHS):
+            return await call_next(request)
+        
         client_ip = request.client.host
         current_time = time.time()
         
