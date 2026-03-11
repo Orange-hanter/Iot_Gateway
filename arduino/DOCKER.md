@@ -192,3 +192,75 @@ sudo chmod 666 /dev/ttyUSB0
 ```
 
 **Вывод:** Используйте `bridge.py` на хосте для максимальной простоты и надежности.
+
+## Единый запуск всех bridge на хосте
+
+Для масштабирования на несколько Arduino-драйверов используйте общий менеджер bridge-процессов:
+
+1. Настройте реестр bridge:
+
+```bash
+cp scripts/bridges.conf.example scripts/bridges.conf
+# Отредактируйте scripts/bridges.conf и укажите реальные device_id
+```
+
+2. Запустите все bridge одним скриптом:
+
+```bash
+./scripts/start_bridge_host.sh
+```
+
+3. Остановите все bridge одним скриптом:
+
+```bash
+./scripts/stop_bridge_host.sh
+```
+
+Формат `scripts/bridges.conf`:
+
+```text
+name|script_path|device_id|serial_port|baud_rate|api_url|api_key|extra_args
+```
+
+Пример двух bridge:
+
+```text
+mq2|arduino/bridge.py|<MQ2_DEVICE_ID>|-|115200|http://localhost:8000/api/v1/ingest/http|your-secret-api-key-change-this|-
+button_dht11|arduino/bridge_button_dht11.py|<BUTTON_DHT11_DEVICE_ID>|-|115200|http://localhost:8000/api/v1/ingest/http|your-secret-api-key-change-this|-
+```
+
+## Схема данных BUTTON_DHT11 (согласованный контракт)
+
+Для `button_dht11` bridge нормализует данные перед отправкой в API, чтобы драйвер получал стабильный формат.
+
+Ключевые поля в `metrics`:
+- `type`: `data`
+- `sensor`: `BUTTON_DHT11`
+- `button`, `button_changed`, `button_presses`, `button_event`, `timestamp`
+- `humidity` (основное поле влажности)
+- `temperature` (основная температура: приоритет DS18B20, fallback DHT11)
+- `ds18b20_temperature` (если доступна)
+- `dht11_temperature` (если доступна)
+- `ds18b20_ok` (`true/false`)
+
+Пример:
+
+```json
+{
+  "device_id": "<BUTTON_DHT11_DEVICE_ID>",
+  "metrics": {
+    "type": "data",
+    "sensor": "BUTTON_DHT11",
+    "button": 1,
+    "button_changed": true,
+    "button_presses": 1,
+    "button_event": 1,
+    "humidity": 45.2,
+    "temperature": 24.6,
+    "ds18b20_temperature": 24.6,
+    "dht11_temperature": 24.1,
+    "ds18b20_ok": true,
+    "timestamp": 123456
+  }
+}
+```
