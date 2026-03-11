@@ -171,6 +171,12 @@ class MQTTListener:
             self.client.on_disconnect = self.on_disconnect
             self.client.on_message = self.on_message
             
+            # Устанавливаем аутентификацию
+            self.client.username_pw_set(
+                settings.mqtt_username,
+                settings.mqtt_password
+            )
+            
             logger.info(f"Connecting to MQTT broker at {settings.mqtt_broker_host}:{settings.mqtt_broker_port}")
             self.client.connect(
                 settings.mqtt_broker_host,

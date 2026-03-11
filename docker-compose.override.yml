@@ -1,0 +1,27 @@
+services:
+  arduino-bridge:
+    build:
+      context: .
+      dockerfile: arduino/Dockerfile.bridge
+    container_name: iot-arduino-bridge
+    restart: unless-stopped
+    # На macOS USB Serial пробрасывается через socat TCP-туннель.
+    # Запустите на хосте перед стартом контейнера:
+    #   socat TCP-LISTEN:8888,reuseaddr,fork file:/dev/cu.usbserial-1240,b115200,raw,echo=0
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - USE_SOCAT=1
+      - SERIAL_HOST=host.docker.internal
+      - SERIAL_TCP_PORT=8888
+    volumes:
+      - ./data:/app/data
+    command:
+      - "--device-id=90292091-d66e-4f6b-a8df-ff499eb16b45"
+      - "--api-url=http://iot-core:8000/api/v1/ingest/http"
+      - "--api-key=your-secret-api-key-change-this"
+    depends_on:
+      iot-core:
+        condition: service_healthy
+    networks:
+      - iot-network

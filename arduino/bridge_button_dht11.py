@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Arduino Button+BPM280 Bridge Script
+Arduino Button+DHT11 Bridge Script
 
 Читает данные из Serial порта Arduino и пересылает их в GatewayDemo API.
 """
@@ -12,6 +12,9 @@ import signal
 import sys
 import time
 from typing import Optional
+from pathlib import Path
+from datetime import datetime
+import pickle
 
 try:
     import serial
@@ -30,6 +33,9 @@ DEFAULT_API_URL = "http://localhost:8000/api/v1/ingest/http"
 DEFAULT_API_KEY = "your-secret-api-key-change-this"
 DEFAULT_BAUD_RATE = 115200
 RECONNECT_DELAY = 5
+BUFFER_DIR = Path("./data/bridge_buffer")
+MAX_BUFFER_FILES = 500   # Максимальное число файлов в буфере на устройство
+MAX_BUFFER_AGE_HOURS = 24  # Файлы старше этого времени удаляются
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -38,8 +44,8 @@ logger = logging.getLogger(__name__)
 ACTIVE_BRIDGE = None
 
 
-class ArduinoButtonBPM280Bridge:
-    """Мост между Arduino Button+BPM280 и API."""
+class ArduinoButtonDHT11Bridge:
+    """Мост между Arduino Button+DHT11 и API."""
 
     def __init__(
         self,
@@ -56,6 +62,79 @@ class ArduinoButtonBPM280Bridge:
         self.baud_rate = baud_rate
         self.serial_connection: Optional[serial.Serial] = None
         self.running = False
+        
+        # Локальный буфер для переотправки при недоступности API
+        self.buffer_dir = BUFFER_DIR / device_id
+        self.buffer_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Статистика
+        self.stats = {
+            "sent": 0,
+            "buffered": 0,
+            "resent": 0,
+            "errors": 0,
+            "reconnects": 0
+        }
+
+    def _save_to_buffer(self, data: dict) -> bool:
+        """Сохранить данные в локальный буфер"""
+        try:
+            # Удаляем файлы старше MAX_BUFFER_AGE_HOURS
+            cutoff = datetime.now().timestamp() - MAX_BUFFER_AGE_HOURS * 3600
+            for old_file in self.buffer_dir.glob("*.pkl"):
+                if old_file.stat().st_mtime < cutoff:
+                    old_file.unlink(missing_ok=True)
+
+            # Если буфер заполнен — удаляем самый старый файл (FIFO)
+            buffer_files = sorted(self.buffer_dir.glob("*.pkl"), key=lambda f: f.stat().st_mtime)
+            while len(buffer_files) >= MAX_BUFFER_FILES:
+                oldest = buffer_files.pop(0)
+                oldest.unlink(missing_ok=True)
+                logger.warning(f"Buffer full: dropped oldest file {oldest.name}")
+
+            timestamp = datetime.now().isoformat()
+            buffer_file = self.buffer_dir / f"{timestamp.replace(':', '-')}.pkl"
+
+            with open(buffer_file, 'wb') as f:
+                pickle.dump(data, f)
+
+            self.stats["buffered"] += 1
+            logger.warning(f"Data buffered to {buffer_file.name} (total buffered: {self.stats['buffered']})")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to buffer data: {e}")
+            return False
+    
+    def _flush_buffer(self) -> int:
+        """Переотправить буферизованные данные"""
+        count = 0
+        try:
+            buffer_files = list(self.buffer_dir.glob("*.pkl"))
+            if not buffer_files:
+                return 0
+            
+            logger.info(f"Found {len(buffer_files)} buffered messages, attempting to send...")
+            
+            for buffer_file in buffer_files:
+                try:
+                    with open(buffer_file, 'rb') as f:
+                        data = pickle.load(f)
+                    
+                    # Пытаемся отправить
+                    if self.send_to_api(data):
+                        buffer_file.unlink()  # Удаляем файл после успешной отправки
+                        count += 1
+                        self.stats["resent"] += 1
+                except Exception as e:
+                    logger.error(f"Failed to resend buffered data from {buffer_file.name}: {e}")
+        
+        except Exception as e:
+            logger.error(f"Error flushing buffer: {e}")
+        
+        if count > 0:
+            logger.info(f"Resent {count} buffered messages")
+        
+        return count
 
     def discover_arduino(self) -> Optional[str]:
         ports = serial.tools.list_ports.comports()
@@ -95,11 +174,15 @@ class ArduinoButtonBPM280Bridge:
         self.serial_connection = None
 
     def send_to_api(self, data: dict) -> bool:
-        data["device_id"] = self.device_id
+        # API ожидает формат {"device_id": ..., "metrics": {<arduino_json>}}
+        payload = {
+            "device_id": self.device_id,
+            "metrics": data,
+        }
         try:
             response = requests.post(
                 self.api_url,
-                json=data,
+                json=payload,
                 headers={"X-API-Key": self.api_key},
                 timeout=5.0,
             )
@@ -110,9 +193,19 @@ class ArduinoButtonBPM280Bridge:
                     data.get("temperature"),
                     data.get("humidity"),
                 )
+                
+                # Если успешно отправили, пытаемся отправить буферизованные данные
+                if self.stats["buffered"] > 0:
+                    self._flush_buffer()
+                
                 return True
 
             logger.error("API error %s: %s", response.status_code, response.text)
+            self._save_to_buffer(data)
+            return False
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.warning(f"Network error: {e}")
+            self._save_to_buffer(data)
             return False
         except Exception as e:
             logger.error("Failed to send data: %s", e)
@@ -133,18 +226,31 @@ class ArduinoButtonBPM280Bridge:
             logger.info("Arduino status: %s", data["status"])
             return
 
-        if data.get("type") == "data" and data.get("sensor") == "BUTTON_BPM280":
+        sensor_type = data.get("sensor")
+        if data.get("type") == "data" and sensor_type == "BUTTON_DHT11":
             self.send_to_api(data)
 
     def run(self):
         self.running = True
-        logger.info("Starting Button+BPM280 bridge for device %s", self.device_id)
+        logger.info("Starting Button+DHT11 bridge for device %s", self.device_id)
+        logger.info(f"Local buffer directory: {self.buffer_dir}")
+        
+        # Попытаемся отправить буферизованные данные если есть
+        self._flush_buffer()
+        
+        last_buffer_flush = time.time()
 
         while self.running:
             if not self.serial_connection or not self.serial_connection.is_open:
                 if not self.connect():
                     time.sleep(RECONNECT_DELAY)
                     continue
+
+            # Периодически пытаемся отправить буферизованные данные (каждые 30 сек)
+            current_time = time.time()
+            if current_time - last_buffer_flush > 30 and self.stats["buffered"] > 0:
+                self._flush_buffer()
+                last_buffer_flush = current_time
 
             conn = self.serial_connection
             if conn is None:
@@ -167,6 +273,14 @@ class ArduinoButtonBPM280Bridge:
                 time.sleep(1.0)
 
         self.disconnect()
+        logger.info(
+            "Statistics: sent=%d, buffered=%d, resent=%d, errors=%d, reconnects=%d",
+            self.stats["sent"],
+            self.stats["buffered"],
+            self.stats["resent"],
+            self.stats["errors"],
+            self.stats["reconnects"],
+        )
 
     def stop(self):
         self.running = False
@@ -180,7 +294,7 @@ def signal_handler(signum, frame):
 def main():
     global ACTIVE_BRIDGE
 
-    parser = argparse.ArgumentParser(description="Arduino Button+BPM280 to GatewayDemo bridge")
+    parser = argparse.ArgumentParser(description="Arduino Button+DHT11 to GatewayDemo bridge")
     parser.add_argument("--device-id", required=True, help="Device UUID from GatewayDemo")
     parser.add_argument("--port", help="Serial port (auto-discover if not specified)")
     parser.add_argument("--api-url", default=DEFAULT_API_URL, help=f"API URL (default: {DEFAULT_API_URL})")
@@ -188,7 +302,7 @@ def main():
     parser.add_argument("--baud-rate", type=int, default=DEFAULT_BAUD_RATE, help="Serial baud rate")
     args = parser.parse_args()
 
-    bridge = ArduinoButtonBPM280Bridge(
+    bridge = ArduinoButtonDHT11Bridge(
         device_id=args.device_id,
         port=args.port,
         api_url=args.api_url,

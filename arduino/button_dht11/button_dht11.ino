@@ -1,54 +1,20 @@
 /*
-  Arduino firmware: Button + BPM280 humidity + temperature wrapper
+  Arduino firmware: Button + DHT11 humidity + temperature
 
   Notes:
-  - Temperature sensor is abstracted via TemperatureSensor class.
-  - Current implementation uses a placeholder adapter and can be replaced later.
+  - DHT11 is used as a source for both humidity and temperature.
   - Output is JSON lines over Serial at 115200.
 */
 
+#include <DHT.h>
+
 const int BUTTON_PIN = 2;
+const int DHT_PIN = 3;
+const int DHT_TYPE = DHT11;
 const unsigned long SEND_INTERVAL_MS = 2000;
 const unsigned long BUTTON_DEBOUNCE_MS = 40;
 
-class TemperatureSensor {
-public:
-  virtual ~TemperatureSensor() {}
-  virtual bool begin() = 0;
-  virtual bool readCelsius(float &valueOut) = 0;
-  virtual const char* className() = 0;
-};
-
-class PlaceholderTemperatureSensor : public TemperatureSensor {
-public:
-  bool begin() override { return true; }
-
-  bool readCelsius(float &valueOut) override {
-    // Placeholder implementation until concrete hardware is selected.
-    valueOut = NAN;
-    return false;
-  }
-
-  const char* className() override { return "placeholder"; }
-};
-
-class BPM280HumiditySensor {
-public:
-  bool begin() {
-    // Placeholder init. Add real BPM280 init when hardware library is finalized.
-    return true;
-  }
-
-  bool readHumidity(float &valueOut) {
-    // Placeholder value for integration checks.
-    // Replace with actual BPM280 humidity reading later.
-    valueOut = 50.0;
-    return true;
-  }
-};
-
-PlaceholderTemperatureSensor temperatureSensor;
-BPM280HumiditySensor humiditySensor;
+DHT dht(DHT_PIN, DHT_TYPE);
 
 unsigned long lastSentAt = 0;
 volatile bool buttonEventLatched = false;
@@ -69,9 +35,7 @@ void onButtonInterrupt() {
 }
 
 void sendHandshake() {
-  Serial.print("{\"type\":\"handshake\",\"device_id\":\"ARDUINO_BUTTON_BPM280\",\"firmware\":\"1.0.0\",\"sensor\":\"BUTTON_BPM280\",\"temperature_sensor_class\":\"");
-  Serial.print(temperatureSensor.className());
-  Serial.println("\"}");
+  Serial.println("{\"type\":\"handshake\",\"device_id\":\"ARDUINO_BUTTON_DHT11\",\"firmware\":\"1.1.0\",\"sensor\":\"BUTTON_DHT11\",\"temperature_sensor_class\":\"dht11\",\"humidity_sensor_type\":\"dht11\"}");
 }
 
 void sendData(
@@ -85,7 +49,7 @@ void sendData(
 ) {
   int buttonPressed = (buttonState == LOW) ? 1 : 0;
 
-  Serial.print("{\"type\":\"data\",\"sensor\":\"BUTTON_BPM280\",\"button\":");
+  Serial.print("{\"type\":\"data\",\"sensor\":\"BUTTON_DHT11\",\"button\":");
   Serial.print(buttonPressed);
   Serial.print(",\"button_changed\":");
   Serial.print(buttonChanged ? "true" : "false");
@@ -110,7 +74,7 @@ void sendData(
 void sendButtonPressEvent(int buttonState) {
   int buttonPressed = (buttonState == LOW) ? 1 : 0;
 
-  Serial.print("{\"type\":\"data\",\"sensor\":\"BUTTON_BPM280\",\"button\":");
+  Serial.print("{\"type\":\"data\",\"sensor\":\"BUTTON_DHT11\",\"button\":");
   Serial.print(buttonPressed);
   Serial.print(",\"button_event\":1,\"button_changed\":true,\"button_presses\":1");
   Serial.print(",\"timestamp\":");
@@ -127,8 +91,7 @@ void setup() {
     ;
   }
 
-  temperatureSensor.begin();
-  humiditySensor.begin();
+  dht.begin();
 
   sendHandshake();
   Serial.println("{\"status\":\"ready\"}");
@@ -168,8 +131,15 @@ void loop() {
   float humidity = NAN;
   float temperature = NAN;
 
-  bool hasHumidity = humiditySensor.readHumidity(humidity);
-  bool hasTemperature = temperatureSensor.readCelsius(temperature);
+  humidity = dht.readHumidity();
+  temperature = dht.readTemperature();
+
+  bool hasHumidity = !isnan(humidity);
+  bool hasTemperature = !isnan(temperature);
+
+  if (!hasHumidity || !hasTemperature) {
+    Serial.println("{\"status\":\"sensor_read_error\",\"sensor\":\"BUTTON_DHT11\"}");
+  }
 
   sendData(
     buttonState,

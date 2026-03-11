@@ -1,18 +1,18 @@
-# Arduino Button + BPM280 - Руководство
+# Arduino Button + DHT11 - Руководство
 
-Интеграция Arduino-устройства с кнопкой, влажностью (BPM280) и температурой через абстрактную обертку.
+Интеграция Arduino-устройства с кнопкой, влажностью (DHT11) и температурой через абстрактную обертку.
 
 ## Что реализовано
 
-- Новый драйвер: `arduino_button_bpm280`
+- Новый драйвер: `arduino_button_dht11`
 - Метрики:
 - `button_state` (0/1)
 - `button_changed` (0/1)
 - `humidity` (%)
 - `temperature` (C, если доступна)
 - `button_event` (1 на каждое отдельное нажатие)
-- Прошивка: `arduino/button_bpm280/button_bpm280.ino`
-- Мост для отправки в API: `arduino/bridge_button_bpm280.py`
+- Прошивка: `arduino/button_dht11/button_dht11.ino`
+- Мост для отправки в API: `arduino/bridge_button_dht11.py`
 
 ## Важно про датчик температуры
 
@@ -26,11 +26,11 @@ curl -X POST http://localhost:8000/api/v1/devices \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-secret-api-key-change-this" \
   -d '{
-    "name": "Button + BPM280",
-    "driver_type": "arduino_button_bpm280",
+    "name": "Button + DHT11",
+    "driver_type": "arduino_button_dht11",
     "config": {
       "location": "Lab #2",
-      "humidity_sensor_type": "bpm280",
+      "humidity_sensor_type": "dht11",
       "temperature_sensor_class": "generic"
     }
   }'
@@ -41,7 +41,7 @@ curl -X POST http://localhost:8000/api/v1/devices \
 ```json
 {
   "type": "data",
-  "sensor": "BUTTON_BPM280",
+  "sensor": "BUTTON_DHT11",
   "button": 1,
   "button_changed": true,
   "humidity": 45.2,
@@ -53,13 +53,13 @@ curl -X POST http://localhost:8000/api/v1/devices \
 ## Запуск моста
 
 ```bash
-python arduino/bridge_button_bpm280.py --device-id YOUR-DEVICE-UUID
+python arduino/bridge_button_dht11.py --device-id YOUR-DEVICE-UUID
 ```
 
 С ручным портом:
 
 ```bash
-python arduino/bridge_button_bpm280.py --device-id YOUR-DEVICE-UUID --port /dev/tty.usbmodem123
+python arduino/bridge_button_dht11.py --device-id YOUR-DEVICE-UUID --port /dev/tty.usbmodem123
 ```
 
 ## Триггер на каждое нажатие кнопки
@@ -95,11 +95,11 @@ curl -X POST http://localhost:8000/api/v1/triggers \
 ## Быстрый тест драйвера
 
 ```bash
-python arduino/test_button_bpm280_driver.py
+python arduino/test_button_dht11_driver.py
 ```
 
 Или с подключенным serial-портом:
 
 ```bash
-python arduino/test_button_bpm280_driver.py --port /dev/tty.usbmodem123
+python arduino/test_button_dht11_driver.py --port /dev/tty.usbmodem123
 ```

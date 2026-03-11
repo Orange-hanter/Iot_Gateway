@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     # MQTT
     mqtt_broker_host: str = "mqtt-broker"
     mqtt_broker_port: int = 1883
+    mqtt_username: str = "iot-core"
+    mqtt_password: str = "change-this-mqtt-password"
     mqtt_client_id: str = "iot-core-server"
     mqtt_topic_pattern: str = "iot/+/data"
     mqtt_qos: int = 1

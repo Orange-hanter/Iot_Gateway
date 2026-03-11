@@ -24,6 +24,7 @@ class RuleEngine:
     def __init__(self):
         self.running = False
         self.task: Optional[asyncio.Task] = None
+        self.cleanup_task: Optional[asyncio.Task] = None
     
     async def start(self):
         """Запуск Rule Engine"""
@@ -33,6 +34,7 @@ class RuleEngine:
         
         self.running = True
         self.task = asyncio.create_task(self._poll_loop())
+        self.cleanup_task = asyncio.create_task(self._cleanup_loop())
         logger.info("Rule Engine started")
     
     async def stop(self):
@@ -41,6 +43,8 @@ class RuleEngine:
             return
         
         self.running = False
+        
+        # Остановка poll loop
         if self.task:
             self.task.cancel()
             try:
@@ -48,7 +52,56 @@ class RuleEngine:
             except asyncio.CancelledError:
                 pass
         
+        # Остановка cleanup loop
+        if self.cleanup_task:
+            self.cleanup_task.cancel()
+            try:
+                await self.cleanup_task
+            except asyncio.CancelledError:
+                pass
+        
         logger.info("Rule Engine stopped")
+    
+    async def _cleanup_loop(self):
+        """
+        Фоновый цикл для regularного cleanup старых данных.
+        Запускается каждый час.
+        """
+        logger.info("Cleanup loop started (runs every 60 minutes)")
+        
+        while self.running:
+            try:
+                await asyncio.sleep(3600)  # Каждый час
+                
+                async with db.get_session() as session:
+                    storage = StorageService(session)
+                    
+                    # Cleanup старой телеметрии
+                    deleted_telemetry = await storage.cleanup_old_telemetry()
+                    
+                    # Cleanup обработанных событий из очереди (старше 7 дней)
+                    from datetime import timedelta
+                    cutoff_date = datetime.utcnow() - timedelta(days=7)
+                    from sqlalchemy import delete
+                    from app.database.models import InternalQueue
+                    
+                    query = delete(InternalQueue).where(
+                        (InternalQueue.is_processed == True) &
+                        (InternalQueue.processed_at < cutoff_date)
+                    )
+                    result = await session.execute(query)
+                    await session.commit()
+                    deleted_queue = result.rowcount
+                    
+                    logger.info(
+                        f"Cleanup: deleted {deleted_telemetry} old telemetry records "
+                        f"and {deleted_queue} old queue items"
+                    )
+            
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in cleanup loop: {e}", exc_info=True)
     
     async def _poll_loop(self):
         """Основной цикл обработки событий"""
@@ -425,8 +478,15 @@ class RuleEngine:
         )
         session.add(webhook_log)
         
-        # Обновляем время последнего срабатывания
-        trigger.last_triggered_at = datetime.utcnow()
+        # ⚠️ ВАЖНО: Обновляем last_triggered_at ТОЛЬКО при успешной отправке!
+        # Это гарантирует, что неудачные попытки не "гасят" cooldown для следующих попыток
+        if overall_success:
+            trigger.last_triggered_at = datetime.utcnow()
+            logger.info(
+                f"Trigger {trigger.id} success: cooldown now active for {trigger.cooldown_sec}s"
+            )
+        else:
+            logger.warning(f"Trigger {trigger.id} failed to send notification, cooldown NOT updated")
         
         await session.commit()
 

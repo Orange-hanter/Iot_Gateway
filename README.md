@@ -152,7 +152,7 @@ app/
 Полная поддержка датчиков на базе Arduino с автоматическим обнаружением устройств:
 - 📁 Прошивки и схемы: [arduino/](arduino/)
 - 📖 Руководство: [docs/ARDUINO_MQ2.md](docs/ARDUINO_MQ2.md)
-- 📖 Руководство (кнопка + BPM280): [docs/ARDUINO_BUTTON_BPM280.md](docs/ARDUINO_BUTTON_BPM280.md)
+- 📖 Руководство (кнопка + DHT11): [docs/ARDUINO_BUTTON_DHT11.md](docs/ARDUINO_BUTTON_DHT11.md)
 - 🔌 Схема подключения: [arduino/WIRING.md](arduino/WIRING.md)
 
 ## Документация
@@ -162,7 +162,7 @@ app/
 - [Development Guide](docs/DEVELOPMENT.md)
 - [Examples](docs/EXAMPLES.md)
 - [Arduino MQ2 Sensor](docs/ARDUINO_MQ2.md)
-- [Arduino Button + BPM280](docs/ARDUINO_BUTTON_BPM280.md)
+- [Arduino Button + DHT11](docs/ARDUINO_BUTTON_DHT11.md)
 
 ## Лицензия
 

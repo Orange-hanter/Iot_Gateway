@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Тесты драйвера Arduino Button+BPM280."""
+"""Тесты драйвера Arduino Button+DHT11."""
 
 import argparse
 import json
@@ -7,11 +7,11 @@ import sys
 
 sys.path.insert(0, "/Users/dakh/Git/GatewayDemo")
 
-from app.drivers.arduino_button_bpm280 import ArduinoButtonBPM280Driver
+from app.drivers.arduino_button_dht11 import ArduinoButtonDHT11Driver
 
 
 def test_discovery() -> None:
-    driver = ArduinoButtonBPM280Driver()
+    driver = ArduinoButtonDHT11Driver()
     ports = driver.discover_arduino_ports()
     print("Found ports:")
     for item in ports:
@@ -19,10 +19,10 @@ def test_discovery() -> None:
 
 
 def test_parse_sample() -> None:
-    driver = ArduinoButtonBPM280Driver()
+    driver = ArduinoButtonDHT11Driver()
     sample = {
         "type": "data",
-        "sensor": "BUTTON_BPM280",
+        "sensor": "BUTTON_DHT11",
         "button": 1,
         "button_changed": True,
         "temperature": 23.8,
@@ -35,7 +35,7 @@ def test_parse_sample() -> None:
 
     event_sample = {
         "type": "data",
-        "sensor": "BUTTON_BPM280",
+        "sensor": "BUTTON_DHT11",
         "button": 1,
         "button_event": 1,
         "button_changed": True,
@@ -48,7 +48,7 @@ def test_parse_sample() -> None:
 
 
 def test_serial_read(port: str) -> None:
-    driver = ArduinoButtonBPM280Driver()
+    driver = ArduinoButtonDHT11Driver()
     if not driver.connect_to_arduino(port):
         print("Connection failed")
         return
@@ -63,7 +63,7 @@ def test_serial_read(port: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Test Button+BPM280 driver")
+    parser = argparse.ArgumentParser(description="Test Button+DHT11 driver")
     parser.add_argument("--port", help="Serial port for direct read")
     args = parser.parse_args()
 

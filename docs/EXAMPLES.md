@@ -280,18 +280,18 @@ curl http://localhost:8000/api/v1/stats \
 
 ---
 
-## Пример 10: Создание Arduino Button+BPM280 устройства
+## Пример 10: Создание Arduino Button+DHT11 устройства
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/devices \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-secret-api-key-change-this" \
   -d '{
-    "name": "Button + BPM280 #1",
-    "driver_type": "arduino_button_bpm280",
+    "name": "Button + DHT11 #1",
+    "driver_type": "arduino_button_dht11",
     "config": {
       "location": "Test Bench",
-      "humidity_sensor_type": "bpm280",
+      "humidity_sensor_type": "dht11",
       "temperature_sensor_class": "generic"
     }
   }'
@@ -326,7 +326,7 @@ curl -X POST http://localhost:8000/api/v1/ingest/http \
   -d '{
     "device_id": "YOUR-DEVICE-UUID",
     "type": "data",
-    "sensor": "BUTTON_BPM280",
+    "sensor": "BUTTON_DHT11",
     "button": 1,
     "button_changed": true,
     "temperature": 23.8,

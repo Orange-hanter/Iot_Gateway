@@ -1,8 +1,8 @@
 """
-Arduino Button + BPM280 Driver
+Arduino Button + DHT11 Driver
 
-Драйвер для Arduino-устройства с кнопкой, датчиком температуры
-(через обертку-адаптер) и датчиком влажности BPM280.
+Драйвер для Arduino-устройства с кнопкой и датчиком DHT11
+(температура и влажность).
 """
 import json
 import logging
@@ -45,8 +45,8 @@ class TemperatureSensorAdapter:
             "temperature_c",
             "temp",
             "temp_c",
-            "bpm280_temperature",
-            "bpm280_temp",
+            "dht11_temperature",
+            "dht11_temp",
         ]
 
         for field in candidate_fields:
@@ -60,50 +60,70 @@ class TemperatureSensorAdapter:
         return None
 
 
-class ArduinoButtonBPM280Driver(BaseDriver):
-    """Драйвер Arduino: кнопка + температура + влажность (BPM280)."""
+class ArduinoButtonDHT11Driver(BaseDriver):
+    """Драйвер Arduino: кнопка + температура + влажность (DHT11)."""
 
-    driver_name = "arduino_button_bpm280"
-    description = "Arduino with button + temperature wrapper + BPM280 humidity"
+    driver_name = "arduino_button_dht11"
+    description = "Arduino with button + DHT11 humidity and temperature"
 
     BAUD_RATE = 115200
     TIMEOUT = 2.0
-    DEVICE_IDENTIFIER = "ARDUINO_BUTTON_BPM280"
+    DEVICE_IDENTIFIER = "ARDUINO_BUTTON_DHT11"
 
     def __init__(self):
         super().__init__()
         self._serial_connection = None
 
+    def _get_raw(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Извлекает сырой Arduino-payload.
+
+        API передаёт данные в формате {"device_id": ..., "metrics": {<arduino_json>}}.
+        При прямом вызове (тесты, MQTT) данные могут прийти без обёртки.
+        """
+        if "metrics" in payload and isinstance(payload["metrics"], dict):
+            return payload["metrics"]
+        return payload
+
     def validate(self, payload: Dict[str, Any]) -> bool:
         """
         Валидация payload от Arduino.
 
-        Пример формата:
+        Пример формата (через API):
         {
-            "type": "data",
-            "sensor": "BUTTON_BPM280",
-            "button": 1,
-            "temperature": 24.6,
-            "humidity": 45.2,
-            "timestamp": 123456
+            "device_id": "...",
+            "metrics": {
+                "type": "data",
+                "sensor": "BUTTON_DHT11",
+                "button": 1,
+                "humidity": 45.2,
+                "timestamp": 123456
+            }
         }
         """
         if not isinstance(payload, dict):
             return False
 
-        if payload.get("type") != "data":
-            logger.warning("Invalid type for arduino_button_bpm280: %s", payload.get("type"))
+        raw = self._get_raw(payload)
+
+        if raw.get("type") != "data":
+            logger.warning("Invalid type for arduino_button_dht11: %s", raw.get("type"))
+            return False
+
+        sensor_type = raw.get("sensor")
+        if sensor_type and sensor_type != "BUTTON_DHT11":
+            logger.warning("Invalid sensor for arduino_button_dht11: %s", sensor_type)
             return False
 
         # Событийный пакет кнопки: отдельное сообщение на каждое нажатие.
-        if "button_event" in payload:
+        if "button_event" in raw:
             return True
 
-        if "button" not in payload:
+        if "button" not in raw:
             logger.warning("Missing required field: button")
             return False
 
-        if "humidity" not in payload and "bpm280_humidity" not in payload:
+        if "humidity" not in raw and "dht11_humidity" not in raw:
             logger.warning("Missing required humidity field")
             return False
 
@@ -112,24 +132,27 @@ class ArduinoButtonBPM280Driver(BaseDriver):
     def parse(self, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Парсинг payload в нормализованные метрики."""
         result: List[Dict[str, Any]] = []
+        raw = self._get_raw(payload)
 
-        if "button" in payload:
-            button_state = self._to_bool(payload.get("button"))
+        if "button" in raw:
+            button_state = self._to_bool(raw.get("button"))
             result.append({
                 "name": "button_state",
                 "value": 1.0 if button_state else 0.0,
                 "unit": None,
             })
 
-        if "button_event" in payload:
-            event_value = self._to_bool(payload.get("button_event"))
+        if "button_event" in raw:
+            event_value = self._to_bool(raw.get("button_event"))
             result.append({
                 "name": "button_event",
                 "value": 1.0 if event_value else 0.0,
                 "unit": None,
             })
 
-        humidity_raw = payload.get("humidity", payload.get("bpm280_humidity"))
+        humidity_raw = raw.get("humidity")
+        if humidity_raw is None:
+            humidity_raw = raw.get("dht11_humidity")
         if humidity_raw is not None:
             try:
                 humidity_value = float(humidity_raw)
@@ -146,7 +169,7 @@ class ArduinoButtonBPM280Driver(BaseDriver):
             sensor_class = payload["config"].get("temperature_sensor_class", "generic")
 
         temp_adapter = TemperatureSensorAdapter(sensor_class=sensor_class)
-        temperature_value = temp_adapter.extract_celsius(payload)
+        temperature_value = temp_adapter.extract_celsius(raw)
         if temperature_value is not None:
             result.append({
                 "name": "temperature",
@@ -154,23 +177,23 @@ class ArduinoButtonBPM280Driver(BaseDriver):
                 "unit": "C",
             })
 
-        if "button_changed" in payload:
-            changed = self._to_bool(payload.get("button_changed"))
+        if "button_changed" in raw:
+            changed = self._to_bool(raw.get("button_changed"))
             result.append({
                 "name": "button_changed",
                 "value": 1.0 if changed else 0.0,
                 "unit": None,
             })
 
-        if "button_presses" in payload:
+        if "button_presses" in raw:
             try:
                 result.append({
                     "name": "button_presses",
-                    "value": float(payload.get("button_presses", 0)),
+                    "value": float(raw.get("button_presses", 0)),
                     "unit": None,
                 })
             except (TypeError, ValueError):
-                logger.warning("Invalid button_presses value: %s", payload.get("button_presses"))
+                logger.warning("Invalid button_presses value: %s", raw.get("button_presses"))
 
         return result
 
@@ -213,8 +236,8 @@ class ArduinoButtonBPM280Driver(BaseDriver):
                     "type": "string",
                     "title": "Humidity Sensor Type",
                     "description": "Humidity sensor family",
-                    "default": "bpm280",
-                    "enum": ["bpm280"],
+                    "default": "dht11",
+                    "enum": ["dht11"],
                 },
             },
             "required": ["location"],
