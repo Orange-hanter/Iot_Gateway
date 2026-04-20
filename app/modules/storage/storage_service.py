@@ -170,7 +170,7 @@ class StorageService:
             Список событий
         """
         query = select(InternalQueue).where(
-            InternalQueue.is_processed == False
+            InternalQueue.is_processed.is_(False)
         ).order_by(InternalQueue.created_at).limit(limit)
         
         result = await self.session.execute(query)

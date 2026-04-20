@@ -10,15 +10,29 @@ ENV/
 *.egg-info/
 dist/
 build/
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg
+.coverage
+.coverage.*
+htmlcov/
+.hypothesis/
+*.cover
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*.sublime-project
+*.sublime-workspace
 
 # Environment
 .env
+.env.local
+.env.*.local
 
 # Database
 *.db
@@ -37,6 +51,11 @@ data/*.sqlite
 # Docker
 .dockerignore
 
+# Obsidian
+docs/.obsidian/
+
 # OS
 .DS_Store
 Thumbs.db
+*.bak
+*~

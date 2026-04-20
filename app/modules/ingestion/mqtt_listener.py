@@ -23,7 +23,7 @@ class MQTTListener:
         self.running = False
         self.loop: Optional[asyncio.AbstractEventLoop] = None
     
-    def on_connect(self, client, userdata, flags, rc):
+    def on_connect(self, client, userdata, flags, rc):  # pylint: disable=unused-argument
         """Callback при подключении к MQTT брокеру"""
         if rc == 0:
             logger.info("Connected to MQTT broker")
@@ -34,12 +34,12 @@ class MQTTListener:
         else:
             logger.error(f"Failed to connect to MQTT broker: {rc}")
     
-    def on_disconnect(self, client, userdata, rc):
+    def on_disconnect(self, client, userdata, rc):  # pylint: disable=unused-argument
         """Callback при отключении от MQTT брокера"""
         if rc != 0:
             logger.warning(f"Unexpected MQTT disconnect: {rc}")
     
-    def on_message(self, client, userdata, msg):
+    def on_message(self, client, userdata, msg):  # pylint: disable=unused-argument
         """Callback при получении сообщения"""
         try:
             # Извлекаем device_id из топика: iot/{device_id}/data

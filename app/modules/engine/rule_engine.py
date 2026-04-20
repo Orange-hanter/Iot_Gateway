@@ -80,13 +80,12 @@ class RuleEngine:
                     deleted_telemetry = await storage.cleanup_old_telemetry()
                     
                     # Cleanup обработанных событий из очереди (старше 7 дней)
-                    from datetime import timedelta
                     cutoff_date = datetime.utcnow() - timedelta(days=7)
                     from sqlalchemy import delete
                     from app.database.models import InternalQueue
                     
                     query = delete(InternalQueue).where(
-                        (InternalQueue.is_processed == True) &
+                        (InternalQueue.is_processed.is_(True)) &
                         (InternalQueue.processed_at < cutoff_date)
                     )
                     result = await session.execute(query)
@@ -200,8 +199,8 @@ class RuleEngine:
         # Триггеры для конкретного устройства или для всех (device_id IS NULL)
         query = select(Trigger).where(
             and_(
-                Trigger.is_active == True,
-                (Trigger.device_id == device_id) | (Trigger.device_id == None)
+                Trigger.is_active.is_(True),
+                (Trigger.device_id == device_id) | (Trigger.device_id.is_(None))
             )
         )
         
@@ -247,32 +246,31 @@ class RuleEngine:
             if condition.startswith(">="):
                 threshold = float(condition[2:].strip())
                 return value >= threshold
-            elif condition.startswith("<="):
+            if condition.startswith("<="):
                 threshold = float(condition[2:].strip())
                 return value <= threshold
-            elif condition.startswith(">"):
+            if condition.startswith(">"):
                 threshold = float(condition[1:].strip())
                 return value > threshold
-            elif condition.startswith("<"):
+            if condition.startswith("<"):
                 threshold = float(condition[1:].strip())
                 return value < threshold
-            elif condition.startswith("==") or condition.startswith("="):
+            if condition.startswith("==") or condition.startswith("="):
                 threshold = float(condition.lstrip("=").strip())
                 return abs(value - threshold) < 0.001  # Float comparison
-            elif condition.startswith("!="):
+            if condition.startswith("!="):
                 threshold = float(condition[2:].strip())
                 return abs(value - threshold) >= 0.001
             
             # Range: "10..30"
-            elif ".." in condition:
+            if ".." in condition:
                 parts = condition.split("..")
                 min_val = float(parts[0].strip())
                 max_val = float(parts[1].strip())
                 return min_val <= value <= max_val
             
-            else:
-                logger.warning(f"Unknown condition format: {condition}")
-                return False
+            logger.warning(f"Unknown condition format: {condition}")
+            return False
         
         except Exception as e:
             logger.error(f"Error evaluating condition '{condition}': {e}")

@@ -62,7 +62,7 @@ class WebhookDispatcher:
                 )
                 
                 # Проверяем код ответа
-                if response.status_code == 200 or response.status_code == 201:
+                if response.status_code in (200, 201):
                     logger.info(f"Webhook sent successfully to {url}")
                     return {
                         "success": True,
@@ -70,11 +70,10 @@ class WebhookDispatcher:
                         "response_body": response.text[:500],  # Ограничиваем размер
                         "error_message": None
                     }
-                else:
-                    logger.warning(
-                        f"Webhook returned non-200 status: {response.status_code}"
-                    )
-                    last_error = f"HTTP {response.status_code}: {response.text[:200]}"
+                logger.warning(
+                    f"Webhook returned non-200 status: {response.status_code}"
+                )
+                last_error = f"HTTP {response.status_code}: {response.text[:200]}"
             
             except httpx.TimeoutException as e:
                 last_error = f"Timeout: {str(e)}"
@@ -154,7 +153,7 @@ class WebhookDispatcher:
             result = await self.send_webhook(url, payload, max_retries)
             
             if result["success"]:
-                logger.info(f"Firebase notification sent successfully")
+                logger.info("Firebase notification sent successfully")
             else:
                 logger.error(f"Failed to send Firebase notification: {result.get('error_message')}")
             

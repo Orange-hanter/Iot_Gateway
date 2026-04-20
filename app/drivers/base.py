@@ -28,7 +28,6 @@ class BaseDriver(ABC):
         Returns:
             True если данные корректны, False иначе
         """
-        pass
     
     @abstractmethod
     def parse(self, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -45,7 +44,6 @@ class BaseDriver(ABC):
                 {"name": "humidity", "value": 60.0, "unit": "%"}
             ]
         """
-        pass
     
     @abstractmethod
     def get_config_schema(self) -> Dict[str, Any]:
@@ -56,7 +54,6 @@ class BaseDriver(ABC):
         Returns:
             JSON Schema объект
         """
-        pass
     
     def get_driver_info(self) -> Dict[str, str]:
         """Информация о драйвере"""

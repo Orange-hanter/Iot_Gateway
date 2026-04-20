@@ -23,6 +23,7 @@ class TelemetryPayload(BaseModel):
     metrics: Dict[str, Any] = Field(..., description="Метрики устройства")
     
     @validator('timestamp', pre=True, always=True)
+    @classmethod
     def set_timestamp(cls, v):
         return v or datetime.utcnow()
 
@@ -38,7 +39,7 @@ class IngestResponse(BaseModel):
 async def ingest_http(
     payload: TelemetryPayload,
     request: Request,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),  # pylint: disable=unused-argument
 ):
     """
     HTTP endpoint для приема телеметрии от устройств.
@@ -152,4 +153,4 @@ async def ingest_http(
         raise
     except Exception as e:
         logger.error(f"Error ingesting data: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Internal server error") from e

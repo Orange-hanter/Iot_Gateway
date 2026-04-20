@@ -1,0 +1,101 @@
+[MASTER]
+jobs=0
+persistent=yes
+
+ignore=
+    tests,
+    migrations,
+    .venv,
+    venv,
+    __pycache__,
+    .git,
+    node_modules
+
+ignore-patterns=
+    ^test_.*\.py$,
+    ^.*_pb2\.py$
+
+[MESSAGES CONTROL]
+disable=
+    # Style (уже проверяет black)
+    line-too-long,
+    trailing-whitespace,
+    missing-final-newline,
+    bad-indentation,
+
+    # Import style (уже проверяет ruff)
+    unused-import,
+    ungrouped-imports,
+    wrong-import-order,
+    wrong-import-position,
+
+    # f-string в logging — проектный стиль, допустимо в Python 3.8+
+    logging-fstring-interpolation,
+
+    # broad-exception-caught — допустимо в async/server контексте
+    broad-exception-caught,
+
+    # logging-too-many-args — false positive с %s в quoted строках
+    logging-too-many-args,
+
+    # no-self-argument — Pydantic @validator использует cls
+    no-self-argument,
+
+    # Naming
+    invalid-name,
+    too-many-arguments,
+    too-many-locals,
+    too-many-positional-arguments,
+
+    # Другое
+    too-few-public-methods,
+    duplicate-code,
+    import-outside-toplevel,
+    missing-function-docstring,
+    missing-class-docstring
+
+[DESIGN]
+max-attributes=8
+max-bool-expr=5
+max-branches=15
+max-statements=60
+max-returns=10
+
+[FORMAT]
+max-line-length=100
+indent-string='    '
+indent-after-paren=4
+
+[LOGGING]
+logging-format-style=new
+logging-modules=logging
+
+[SIMILARITIES]
+min-similarity-lines=5
+ignore-comments=yes
+ignore-docstrings=yes
+ignore-imports=yes
+
+[BASIC]
+argument-naming-style=snake_case
+attr-naming-style=snake_case
+class-naming-style=PascalCase
+const-naming-style=UPPER_CASE
+function-naming-style=snake_case
+method-naming-style=snake_case
+variable-naming-style=snake_case
+good-names=i,j,k,ex,Run,_,id,db,x,y,z,e
+
+[MISCELLANEOUS]
+notes=FIXME,XXX,TODO,HACK,BUG
+
+[REPORTS]
+output-format=colorized
+reports=no
+
+[VARIABLES]
+ignored-argument-names=_.*
+init-import=no
+
+[CLASSES]
+check-protected-access-in-special-methods=no

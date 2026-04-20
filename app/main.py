@@ -1,19 +1,21 @@
 """
 IoT-Core MVP - Главный модуль приложения
 """
+import asyncio
 import logging
 import sys
-import asyncio
 from contextlib import asynccontextmanager
-from sqlalchemy import text
+
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
+
 from app.config import settings
 from app.database import db
-from app.modules.ingestion import http_router, mqtt_listener
-from app.modules.api import router, LoggingMiddleware, RateLimitMiddleware
+from app.modules.api import LoggingMiddleware, RateLimitMiddleware, router
 from app.modules.engine import rule_engine, webhook_dispatcher
+from app.modules.ingestion import http_router, mqtt_listener
 
 # Настройка логирования
 logging.basicConfig(
@@ -41,13 +43,13 @@ async def _retry_async_operation(
 ) -> bool:
     """
     Повторная попытка асинхронной операции с экспоненциальной задержкой.
-    
+
     Args:
         operation: async callable
         name: Имя операции для логирования
         max_retries: Максимальное количество попыток
         initial_delay: Начальная задержка в секундах
-        
+
     Returns:
         True если успех, False если все попытки исчерпаны
     """
@@ -73,11 +75,11 @@ async def _watchdog_task():
     Фоновый watchdog для восстановления упавших сервисов.
     """
     logger.info("Service watchdog started")
-    
+
     while True:
         try:
             await asyncio.sleep(30)  # Проверяем каждые 30 сек
-            
+
             # Проверяем MQTT
             if not mqtt_listener.running:
                 logger.warning("MQTT listener is down, attempting recovery...")
@@ -88,7 +90,7 @@ async def _watchdog_task():
                 except Exception as e:
                     logger.error(f"Failed to recover MQTT: {e}")
                     ServiceStatus.mqtt_ready = False
-            
+
             # Проверяем Rule Engine
             if not rule_engine.running:
                 logger.warning("Rule Engine is down, attempting recovery...")
@@ -99,18 +101,11 @@ async def _watchdog_task():
                 except Exception as e:
                     logger.error(f"Failed to recover Rule Engine: {e}")
                     ServiceStatus.rule_engine_ready = False
-        
+
         except asyncio.CancelledError:
             break
         except Exception as e:
             logger.error(f"Watchdog error: {e}", exc_info=True)
-
-# Флаги готовности сервисов
-class ServiceStatus:
-    mqtt_ready = False
-    rule_engine_ready = False
-    db_ready = False
-
 
 
 @asynccontextmanager
@@ -120,9 +115,9 @@ async def lifespan(app: FastAPI):
     Управление запуском и остановкой фоновых сервисов с retry-логикой.
     """
     watchdog_task = None
-    
+
     logger.info(f"Starting {settings.app_name}...")
-    
+
     # Инициализация БД (критична, fail-fast)
     try:
         logger.info("Initializing database...")
@@ -132,7 +127,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"✗ Failed to initialize database: {e}", exc_info=True)
         raise
-    
+
     # MQTT Listener (важна, но не критична для HTTP ingestion)
     if not await _retry_async_operation(
         mqtt_listener.start,
@@ -144,7 +139,7 @@ async def lifespan(app: FastAPI):
         ServiceStatus.mqtt_ready = False
     else:
         ServiceStatus.mqtt_ready = True
-    
+
     # Rule Engine (важна, но не критична для ingestion)
     if not await _retry_async_operation(
         rule_engine.start,
@@ -156,18 +151,18 @@ async def lifespan(app: FastAPI):
         ServiceStatus.rule_engine_ready = False
     else:
         ServiceStatus.rule_engine_ready = True
-    
+
     # Запускаем фоновый watchdog для восстановления
     watchdog_task = asyncio.create_task(_watchdog_task())
-    
+
     logger.info(f"✓ {settings.app_name} started successfully")
-    
+
     # Приложение работает
     yield
-    
+
     # Shutdown
     logger.info("Shutting down...")
-    
+
     # Остановка watchdog
     if watchdog_task:
         watchdog_task.cancel()
@@ -175,13 +170,13 @@ async def lifespan(app: FastAPI):
             await watchdog_task
         except asyncio.CancelledError:
             pass
-    
+
     # Остановка сервисов
     await rule_engine.stop()
     await mqtt_listener.stop()
     await webhook_dispatcher.close()
     await db.close()
-    
+
     logger.info("✓ Shutdown complete")
 
 
@@ -222,26 +217,26 @@ async def health_check():
     Возвращает 503 если критичные компоненты недоступны.
     """
     status_code = 200
-    
+
     try:
         # Проверяем подключение к БД
         async with db.get_session() as session:
             await session.execute(text("SELECT 1"))
-        
+
         db_status = "connected"
     except Exception as e:
         logger.error(f"Health check - DB error: {e}")
         db_status = f"disconnected: {str(e)[:50]}"
         status_code = 503
-    
+
     mqtt_status = "running" if mqtt_listener.running else "stopped"
     if not mqtt_listener.running:
         status_code = 503
-    
+
     rule_engine_status = "running" if rule_engine.running else "stopped"
     if not rule_engine.running:
         status_code = 503
-    
+
     response = {
         "status": "healthy" if status_code == 200 else "degraded",
         "service": settings.app_name,
@@ -255,10 +250,10 @@ async def health_check():
             "rule_engine": ServiceStatus.rule_engine_ready
         }
     }
-    
+
     if status_code != 200:
         response["message"] = "One or more critical services are down"
-    
+
     return JSONResponse(status_code=status_code, content=response)
 
 
@@ -281,7 +276,7 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     uvicorn.run(
         "app.main:app",
         host=settings.host,
