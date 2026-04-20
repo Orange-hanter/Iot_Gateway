@@ -1,168 +1,30 @@
-# IoT-Core MVP
+# Gateway
 
-Платформа для сбора телеметрических данных с IoT-устройств, централизованного хранения и автоматической реакции на события.
+Edge-платформа сбора телеметрии с IoT-устройств для MES/IIoT: приём данных, нормализация, хранение, правила и webhook-интеграции.
 
-## Архитектура
+## Статус
 
-Система построена по принципу **модульного монолита** с контейнеризацией (Docker).
+| Версия | Язык | Состояние |
+|--------|------|-----------|
+| **v0** | Python (FastAPI, SQLite, MQTT) | Пилот/демо завершён 2026-04-20. Заморожен. Доступен в ветке [`legacy/python-demo`](../../tree/legacy/python-demo) и теге `v0.1-demo`. |
+| **v2** | Go | Greenfield-переработка. На текущей ветке ведётся планирование: бизнес-требования, архитектура, бэклог. Кода пока нет. |
 
-### Модули
+Эта ветка (`main`) — рабочее пространство v2. Исходники, конфигурация и документация v0 в `main` больше не поддерживаются.
 
-1. **Ingestion Module** - прием данных от устройств (HTTP, MQTT)
-2. **Storage Module** - управление персистентным слоем (SQLite)
-3. **Rule Engine Module** - анализ данных и управление триггерами
-4. **API Gateway Module** - REST API для внешних интеграций
-5. **Admin UI Module** - веб-интерфейс администрирования
+## Навигация
 
-## Быстрый старт
+- [docs/index.md](docs/index.md) — хаб документации
+- [docs/business/requirements.md](docs/business/requirements.md) — бизнес-требования (точка входа для владельца)
+- [docs/architecture/overview.md](docs/architecture/overview.md) — общая архитектура
+- [docs/backlog/user_stories.md](docs/backlog/user_stories.md) — бэклог user stories
+- [docs/decisions/](docs/decisions/) — ADR
 
-### Требования
-
-- Docker Engine 20+
-- Docker Compose v2+
-
-### Запуск
+## Доступ к архиву v0
 
 ```bash
-# Копировать пример конфигурации
-cp .env.example .env
-
-# Запустить систему
-docker-compose up -d
-
-# Просмотр логов
-docker-compose logs -f
+git checkout v0.1-demo        # тег-снимок пилота
+git checkout legacy/python-demo  # ветка с тем же содержимым
 ```
-
-### Пересборка после обновления кода
-
-При добавлении новых драйверов или изменении кода:
-
-```bash
-# Автоматическая пересборка (рекомендуется)
-./rebuild.sh
-
-# Или вручную
-docker-compose down
-docker-compose build --no-cache
-docker-compose up -d
-
-# Проверка доступных драйверов
-curl http://localhost:8000/api/v1/drivers \
-  -H "X-API-Key: your-secret-api-key-change-this"
-```
-
-### Доступ
-
-- **API**: http://localhost:8000
-- **Admin UI**: http://localhost:8000/admin
-- **Health Check**: http://localhost:8000/health
-- **MQTT Broker**: mqtt://localhost:1883
-
-## API Endpoints
-
-### Ingestion
-- `POST /api/v1/ingest/http` - прием данных через HTTP
-
-### Devices
-- `GET /api/v1/devices` - список устройств
-- `POST /api/v1/devices` - создание устройства
-- `GET /api/v1/devices/{id}` - информация об устройстве
-- `PUT /api/v1/devices/{id}` - обновление устройства
-- `DELETE /api/v1/devices/{id}` - удаление устройства
-
-### Telemetry
-- `GET /api/v1/telemetry/{device_id}` - история показаний
-
-### Triggers
-- `GET /api/v1/triggers` - список правил
-- `POST /api/v1/triggers` - создание правила
-- `PUT /api/v1/triggers/{id}` - обновление правила
-- `DELETE /api/v1/triggers/{id}` - удаление правила
-
-### Webhooks
-- `POST /api/v1/webhooks/test` - тестовая отправка вебхука
-
-## Формат данных
-
-### HTTP Ingestion
-
-```json
-{
-  "device_id": "550e8400-e29b-41d4-a716-446655440000",
-  "timestamp": "2026-03-08T10:00:00Z",
-  "metrics": {
-    "temperature": 25.5,
-    "humidity": 60.0
-  }
-}
-```
-
-### MQTT Ingestion
-
-Topic: `iot/{device_id}/data`
-
-```json
-{
-  "timestamp": "2026-03-08T10:00:00Z",
-  "metrics": {
-    "temperature": 25.5,
-    "humidity": 60.0
-  }
-}
-```
-
-## Безопасность
-
-API защищен ключами. Передавайте ключ в заголовке:
-
-```
-X-API-Key: your-api-key-here
-```
-
-## Разработка
-
-### Структура проекта
-
-```
-app/
-├── main.py              # Точка входа
-├── config.py            # Конфигурация
-├── database/            # Модели и подключение к БД
-├── modules/             # Функциональные модули
-│   ├── ingestion/       # Прием данных
-│   ├── storage/         # Хранение
-│   ├── engine/          # Обработка правил
-│   ├── api/             # REST API
-│   └── admin/           # Админ-панель
-└── drivers/             # Драйверы устройств
-```
-
-### Добавление нового драйвера
-
-1. Создайте файл в `app/drivers/`
-2. Наследуйтесь от `BaseDriver`
-3. Реализуйте методы: `validate()`, `parse()`, `get_config_schema()`
-4. Зарегистрируйте драйвер в `app/drivers/__init__.py`
-
-Подробнее: см. [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
-
-### Интеграция с Arduino
-
-Полная поддержка датчиков на базе Arduino с автоматическим обнаружением устройств:
-- 📁 Прошивки и схемы: [arduino/](arduino/)
-- 📖 Руководство: [docs/ARDUINO_MQ2.md](docs/ARDUINO_MQ2.md)
-- 📖 Руководство (кнопка + DHT11): [docs/ARDUINO_BUTTON_DHT11.md](docs/ARDUINO_BUTTON_DHT11.md)
-- 🔌 Схема подключения: [arduino/WIRING.md](arduino/WIRING.md)
-
-## Документация
-
-- [API Reference](docs/API.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Development Guide](docs/DEVELOPMENT.md)
-- [Examples](docs/EXAMPLES.md)
-- [Arduino MQ2 Sensor](docs/ARDUINO_MQ2.md)
-- [Arduino Button + DHT11](docs/ARDUINO_BUTTON_DHT11.md)
 
 ## Лицензия
 
